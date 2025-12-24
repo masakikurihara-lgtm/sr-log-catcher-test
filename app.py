@@ -659,35 +659,32 @@ if st.session_state.is_tracking:
         st.session_state.fan_list = fan_list
         st.session_state.total_fan_count = total_fan_count
 
-# --- 超・簡略版受信機 ---
+# --- 受信機：シンプル・確実版 ---
         import websocket
         import json
         import threading
-        import time
         import requests
 
-        # 初期化
+        # 初期化：ログ用の箱を準備
         if "free_gift_log" not in st.session_state:
             st.session_state.free_gift_log = []
 
-        # 1. 接続情報がなければ、今すぐ取る
-        if not st.session_state.get("bcsvr_host") or not st.session_state.get("bcsvr_key"):
+        # 接続情報を確実に取得
+        if not st.session_state.get("bcsvr_host"):
             try:
                 rid = st.session_state.get("room_id")
                 api_res = requests.get(f"https://www.showroom-live.com/api/live/live_info?room_id={rid}", headers=HEADERS).json()
                 st.session_state.bcsvr_host = api_res.get("bcsvr_host")
                 st.session_state.bcsvr_key = api_res.get("bcsvr_key")
-                st.write(f"📡 接続先取得: {st.session_state.bcsvr_host}")
             except:
-                st.error("接続情報の取得に失敗しました")
+                pass
 
-        # 2. 受信処理（極限までシンプルに）
+        # メッセージ受信時の処理（ここがデータの入り口）
         def on_message(ws, message):
             try:
                 data_list = json.loads(message)
                 for d in data_list:
-                    # 全てのログをチェック（ギフト判定を激甘にする）
-                    # typeがgiftなら、中身を問わずログに入れる
+                    # 無償ギフト(p:0)またはギフト(t:gift)を検知
                     if d.get("t") == "gift":
                         new_data = {
                             "name": d.get("u_name", "不明"),
@@ -695,30 +692,33 @@ if st.session_state.is_tracking:
                             "num": d.get("n", 1),
                             "p": d.get("p")
                         }
-                        # 無償ギフト(p:0)以外も一旦全部入れてみる（動くか確認するため）
+                        # セッション状態に直接追加（※ここがポイント）
                         st.session_state.free_gift_log.insert(0, new_data)
+                        st.session_state.free_gift_log = st.session_state.free_gift_log[:20]
             except:
                 pass
 
         def on_open(ws):
-            # SUBコマンドの送信（改行あり）
-            ws.send(f"SUB\t{st.session_state.bcsvr_key}\n")
+            key = st.session_state.get("bcsvr_key")
+            if key:
+                ws.send(f"SUB\t{key}\n")
 
-        # 3. スレッドが死んでいたら再起動
+        # 接続がなければ開始
         if not st.session_state.get("ws_active", False):
-            def start_ws():
+            def run():
                 ws = websocket.WebSocketApp(
                     f"wss://{st.session_state.bcsvr_host}/",
                     on_message=on_message,
                     on_open=on_open
                 )
                 ws.run_forever()
-
-            thread = threading.Thread(target=start_ws, daemon=True)
-            thread.start()
+            
+            t = threading.Thread(target=run, daemon=True)
+            t.start()
             st.session_state.ws_active = True
-            st.success("✅ 受信スレッドを起動しました。リロードして下さい。")
             st.rerun()
+
+        st.caption(f"📡 接続先: {st.session_state.get('bcsvr_host')} (ログ数: {len(st.session_state.free_gift_log)})")
 
 
 
