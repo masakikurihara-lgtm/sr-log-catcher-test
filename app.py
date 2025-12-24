@@ -708,7 +708,11 @@ if st.session_state.is_tracking:
 
             ws = websocket.WebSocketApp(f"wss://{host}/", on_message=on_message, on_open=on_open)
             globals()['FINAL_WS_RUNNING'] = True
-            ws.run_forever(ping_interval=25)
+            ws.run_forever(
+                ping_interval=20, 
+                ping_timeout=10, 
+                skip_utf8_validation=True
+            )
             globals()['FINAL_WS_RUNNING'] = False
 
         # 3. 実行制御：ここでNoneを破壊する
