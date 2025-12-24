@@ -686,42 +686,63 @@ if st.session_state.is_tracking:
 
             def on_message(ws, message):
                 try:
+                    # 1. データのデコード（バイナリ対策）
                     msg_str = message.decode('utf-8') if isinstance(message, bytes) else str(message)
-                    
-                    # --- 解析の肝：サーバーからのACK（承認要求）に応答する ---
+
+                    # 🔑 サーバーからの認証要求(ACK)には最優先で応答する
                     if msg_str.startswith("ACK\t"):
-                        # サーバーから届いた ACK 行をそのまま投げ返す（これで蛇口が開く）
                         ws.send(f"{msg_str}\n".encode('utf-8'))
-                        log_ptr.insert(0, {"name": "🔑認証完了", "gift_id": "1", "num": "データ受信開始"})
                         return
 
-                    # 受信データの解析
+                    # 2. JSON解析
                     data = json.loads(msg_str)
-                    if isinstance(data, list):
-                        for d in data:
-                            # 無償ギフト(p=0)の判定
-                            if d.get("t") == "gift" and str(d.get("p")) == "0":
-                                item = {
-                                    "name": d.get("u_name", "不明"),
-                                    "gift_id": d.get("g_id"),
-                                    "num": d.get("n", 1)
-                                }
-                                log_ptr.insert(0, item)
-                                if len(log_ptr) > 50: log_ptr.pop()
-                except:
+                    current_box = globals().get('FINAL_LOG')
+                    if current_box is None: return
+
+                    # SHOWROOMは1つのメッセージに複数のパケットを配列で入れてくる
+                    items_to_process = data if isinstance(data, list) else [data]
+
+                    for d in items_to_process:
+                        # --- 無償ギフトの網を最大まで広げる ---
+                        # 判定①: ポイントが「0」であること
+                        # 判定②: ギフトIDが存在すること
+                        # 判定③: メッセージ種別がギフト送信関連であること
+                        p_val = str(d.get("p", "-1"))
+                        g_id = d.get("g_id")
+                        msg_type = d.get("t")
+
+                        if (p_val == "0" or d.get("gift_type") == 1) and g_id:
+                            item = {
+                                "name": d.get("u_name", "不明"),
+                                "gift_id": g_id,
+                                "num": d.get("n", 1)
+                            }
+                            current_box.insert(0, item)
+                            
+                            # ログ上限設定
+                            if len(current_box) > 50:
+                                current_box.pop()
+
+                except Exception:
+                    # 予期せぬエラーでスレッドを止めない
                     pass
 
             def on_open(ws):
-                # 最初の接続要求
+                # SUBコマンド送信
                 ws.send(f"SUB\t{key}\n".encode('utf-8'))
 
-            # APIレスポンス通りの 8080番ポートを使用
+            # wsプロトコルと8080ポートの組み合わせ
             ws_url = f"ws://{host}:{port}/"
-            ws = websocket.WebSocketApp(ws_url, on_message=on_message, on_open=on_open)
+            ws = websocket.WebSocketApp(
+                ws_url, 
+                on_message=on_message, 
+                on_open=on_open
+            )
             
             globals()['FINAL_WS_RUNNING'] = True
             ws.run_forever(ping_interval=20, ping_timeout=10)
             globals()['FINAL_WS_RUNNING'] = False
+
 
         # 2. 実行制御（多重起動を絶対に防ぐ）
         target_rid = st.session_state.get("room_id")
