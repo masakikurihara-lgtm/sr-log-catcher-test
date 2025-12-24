@@ -671,71 +671,76 @@ if st.session_state.is_tracking:
         import time
         import requests
 
-        # 1. メモリ空間の確保（リフレッシュでも消えない場所）
-        if 'BRIDGE_GIFT_LOG' not in globals():
-            globals()['BRIDGE_GIFT_LOG'] = []
+        # 1. アプリが再起動しても消えない「真の保管場所」
+        if 'FIXED_LOG' not in globals():
+            globals()['FIXED_LOG'] = []
+        if 'WS_CLIENT' not in globals():
+            globals()['WS_CLIENT'] = None
 
-        # 2. 受信機（サーバー接続）
-        def start_ws_engine(host, key):
+        # 2. 受信エンジンの定義
+        def run_ws_engine(host, key):
             def on_message(ws, message):
                 try:
                     data_list = json.loads(message)
                     for d in data_list:
-                        # ギフト全般（星・種含む）を検知
-                        if d.get("t") == "gift":
-                            item = {"name": d.get("u_name", "不明"), "gift_id": d.get("g_id"), "num": d.get("n", 1)}
-                            buf = globals()['BRIDGE_GIFT_LOG']
+                        # gift かつ 無償(p:0)
+                        if d.get("t") == "gift" and str(d.get("p")) == "0":
+                            item = {
+                                "name": d.get("u_name", "不明"),
+                                "gift_id": d.get("g_id"),
+                                "num": d.get("n", 1)
+                            }
+                            buf = globals()['FIXED_LOG']
+                            # 重複チェックをしてから保存
                             if not buf or buf[0] != item:
                                 buf.insert(0, item)
                                 if len(buf) > 30: buf.pop()
                 except: pass
 
             def on_open(ws):
-                # 確実にSUBを送る
+                # 接続直後に1回だけSUBを送る
                 time.sleep(1)
                 ws.send(f"SUB\t{key}\n")
 
-            ws = websocket.WebSocketApp(f"wss://{host}/", on_message=on_message, on_open=on_open)
+            ws = websocket.WebSocketApp(
+                f"wss://{host}/",
+                on_message=on_message,
+                on_open=on_open
+            )
+            globals()['WS_CLIENT'] = ws # インスタンスを保持
             ws.run_forever(ping_interval=20)
 
-        # 3. 接続情報の「死守」と「取得」
-        # room_idがあるのにhostがない場合、ここで確実に再取得する
+        # 3. 接続の実行（すでに動いていれば何もしない）
         rid = st.session_state.get("room_id")
-        if rid and (not st.session_state.get("bcsvr_host") or st.session_state.get("bcsvr_host") == "None"):
-            try:
-                # APIから直接取得
-                resp = requests.get(f"https://www.showroom-live.com/api/live/live_info?room_id={rid}", headers=HEADERS, timeout=5).json()
-                st.session_state.bcsvr_host = resp.get("bcsvr_host")
-                st.session_state.bcsvr_key = resp.get("bcsvr_key")
-            except:
-                pass
+        host = st.session_state.get("bcsvr_host")
+        key = st.session_state.get("bcsvr_key")
 
-        # 4. 実行開始（Noneでないことを確認してから）
-        current_host = st.session_state.get("bcsvr_host")
-        current_key = st.session_state.get("bcsvr_key")
-
-        if current_host and current_host != "None" and not st.session_state.get("ws_running"):
-            t = threading.Thread(target=start_ws_engine, args=(current_host, current_key), daemon=True)
+        if host and host != "None" and not st.session_state.get("ws_active"):
+            # 別スレッドで受信開始
+            t = threading.Thread(target=run_ws_engine, args=(host, key), daemon=True)
             t.start()
-            st.session_state.ws_running = True
+            st.session_state.ws_active = True
 
-        # 5. 表示（メモリから吸い上げ）
-        st.session_state.free_gift_log = list(globals()['BRIDGE_GIFT_LOG'])
+        # 4. 表示：リフレッシュのたびに「真の保管場所」から最新を取ってくる
+        st.session_state.free_gift_log = list(globals()['FIXED_LOG'])
 
+        # UI表示
         st.markdown("### 🌟 無償ギフト")
-        # 状態を分かりやすく表示
-        if current_host and current_host != "None":
-            st.caption(f"📡 接続先: {current_host} | ログ: {len(st.session_state.free_gift_log)}件")
-        else:
-            st.error("📡 接続先が取得できていません。ルームIDを再入力してください。")
+        st.caption(f"📡 接続状態: {'✅ 稼働中' if st.session_state.ws_active else '❌ 停止'} | 取得数: {len(st.session_state.free_gift_log)}件")
 
         with st.container(border=True, height=500):
-            if st.session_state.free_gift_log:
-                for log in st.session_state.free_gift_log:
+            logs = st.session_state.free_gift_log
+            if logs:
+                for log in logs:
                     img_url = f"https://static.showroom-live.com/image/gift/{log['gift_id']}_s.png"
-                    st.markdown(f"<div><img src='{img_url}' width='20'> {log['name']} ×{log['num']}</div>", unsafe_allow_html=True)
+                    st.markdown(f"""
+                    <div style="display:flex; align-items:center; margin-bottom:5px;">
+                        <img src="{img_url}" width="20" style="margin-right:10px;">
+                        <span style="font-size:0.9em;"><b>{log['name']}</b> ×{log['num']}</span>
+                    </div>
+                    """, unsafe_allow_html=True)
             else:
-                st.write("待機中...（星投げを検知するとここに表示されます）")
+                st.write("信号受信待ち... (星投げを検知するとここに表示されます)")
 
 
 
