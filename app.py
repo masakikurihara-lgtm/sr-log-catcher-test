@@ -659,7 +659,7 @@ if st.session_state.is_tracking:
         st.session_state.fan_list = fan_list
         st.session_state.total_fan_count = total_fan_count
 
-# --- 最終修正：API解析の強化版 ---
+# --- ブラウザ偽装＋全データ強制表示版 ---
         import websocket
         import json
         import threading
@@ -671,67 +671,66 @@ if st.session_state.is_tracking:
 
         st.write(f"📡 デバッグ情報: {st.session_state.ws_debug_msg}")
 
-        # 1. 受信したメッセージを処理する関数
         def on_message(ws, message):
             try:
                 msg_list = json.loads(message)
                 for raw_msg in msg_list:
-                    # t: "gift" かつ p: 0 (無償)
                     if raw_msg.get("t") == "gift" and str(raw_msg.get("p")) == "0":
-                        new_gift = {
-                            "name": raw_msg.get("u_name"),
-                            "gift_id": raw_msg.get("g_id"),
-                            "num": raw_msg.get("n")
-                        }
+                        new_gift = {"name": raw_msg.get("u_name"), "gift_id": raw_msg.get("g_id"), "num": raw_msg.get("n")}
                         if "free_gift_log" in st.session_state:
                             if new_gift not in st.session_state.free_gift_log[:10]:
                                 st.session_state.free_gift_log.insert(0, new_gift)
-            except:
-                pass
+            except: pass
 
         def on_open(ws):
             key = st.session_state.get("bcsvr_key")
-            if key:
-                ws.send(f"SUB\t{key}")
+            if key: ws.send(f"SUB\t{key}")
 
-        # 2. 接続開始の判定
         if not st.session_state.get("ws_active", False):
             rid = st.session_state.get("room_id")
             if rid:
                 try:
-                    # 直接APIから値を変数に入れる
-                    res = requests.get(f"https://www.showroom-live.com/api/live/broadcast_info?room_id={rid}", timeout=5)
+                    # 【重要】ブラウザのフリを極限まで高める
+                    custom_headers = {
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                        "Accept": "application/json, text/plain, */*",
+                        "Referer": f"https://www.showroom-live.com/room/profile?room_id={rid}",
+                        "X-Requested-With": "XMLHttpRequest"
+                    }
+                    
+                    res = requests.get(f"https://www.showroom-live.com/api/live/broadcast_info?room_id={rid}", headers=custom_headers, timeout=5)
                     data = res.json()
                     
-                    # 提示いただいたデータ構造に基づき、確実に値を取得
+                    # 届いた中身を「キー（項目名）だけ」一旦全部出す
+                    keys_found = list(data.keys())
+                    
                     host = data.get("bcsvr_host")
                     key = data.get("bcsvr_key")
 
                     if host and key:
-                        # セッションに再保存
                         st.session_state.bcsvr_host = host
                         st.session_state.bcsvr_key = key
                         
-                        # スレッドを立てて接続
                         def run_ws():
-                            ws = websocket.WebSocketApp(
-                                f"wss://{host}/",
-                                on_message=on_message,
-                                on_open=on_open
-                            )
+                            ws = websocket.WebSocketApp(f"wss://{host}/", on_message=on_message, on_open=on_open)
                             ws.run_forever()
 
                         t = threading.Thread(target=run_ws, daemon=True)
                         t.start()
-                        
                         st.session_state.ws_active = True
                         st.session_state.ws_debug_msg = "✅ 受信機が動き出しました"
-                        time.sleep(0.1)
                         st.rerun()
                     else:
-                        st.session_state.ws_debug_msg = "❌ API応答内にhostまたはkeyが見つかりません"
+                        # ここで「実際に何が返ってきたか」を詳細に出す
+                        st.session_state.ws_debug_msg = f"❌ キーが不足。受信項目: {keys_found}"
+                        # 万が一エラーメッセージが入っていればそれも出す
+                        if "error" in data:
+                            st.session_state.ws_debug_msg += f" | エラー内容: {data['error']}"
                 except Exception as e:
-                    st.session_state.ws_debug_msg = f"❌ 接続準備失敗: {str(e)}"
+                    st.session_state.ws_debug_msg = f"❌ 通信失敗: {str(e)}"
+
+
+
 
 
         st.markdown("---")
