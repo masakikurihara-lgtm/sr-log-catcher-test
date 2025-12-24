@@ -681,20 +681,22 @@ if st.session_state.is_tracking:
         def ws_engine_core(rid, host, key):
             def on_message(ws, message):
                 try:
-                    data_list = json.loads(message)
-                    for d in data_list:
-                        # どんなデータでも「t:gift」なら即座に記録
-                        if d.get("t") == "gift":
-                            item = {
-                                "name": d.get("u_name", "不明"),
-                                "gift_id": d.get("g_id"),
-                                "num": d.get("n", 1)
-                            }
-                            buf = globals()['FINAL_LOG_BUFFER']
-                            if not buf or buf[0] != item:
-                                buf.insert(0, item)
-                                if len(buf) > 50: buf.pop()
-                except: pass
+                    data = json.loads(message)
+                    for d in data:
+                        # ギフト（t:gift）かつ 無償（p:0）なら
+                        if d.get("t") == "gift" and str(d.get("p")) == "0":
+                            # 物理メモリ（globals）のリストに直接保存
+                            if 'FINAL_GIFT_STORAGE' not in globals():
+                                globals()['FINAL_GIFT_STORAGE'] = []
+                            
+                            new_gift = {"name": d.get("u_name"), "gift_id": d.get("g_id"), "num": d.get("n")}
+                            globals()['FINAL_GIFT_STORAGE'].insert(0, new_gift)
+                            
+                            # 履歴は最新50件まで保持
+                            if len(globals()['FINAL_GIFT_STORAGE']) > 50:
+                                globals()['FINAL_GIFT_STORAGE'].pop()
+                except:
+                    pass
 
             def on_open(ws):
                 time.sleep(1)
@@ -826,42 +828,31 @@ if st.session_state.is_tracking:
                         st.markdown(html, unsafe_allow_html=True)
                 else:
                     st.info("ギフトがありません。")
-# --- 表示セクション：無償ギフト枠の完全上書き ---
         with col_free_gift:
             st.markdown("### 🌟 無償ギフト")
             
-            # 1. 裏側のメモリから最新ログを吸い上げる
-            current_logs = list(globals().get('FINAL_LOG_BUFFER', []))
+            # 物理メモリから今あるデータを全部引っこ抜く
+            display_list = globals().get('FINAL_GIFT_STORAGE', [])
             
-            # 2. ステータス表示（邪魔なら消してもOKですが、生存確認用です）
-            is_active = globals().get('FINAL_WS_RUNNING', False)
-            st.caption(f"📡 {'✅ 接続中' if is_active else '❌ 停止'} | ログ: {len(current_logs)}件")
+            st.caption(f"📡 受信ログ: {len(display_list)}件")
 
-            # 3. 青い「待機中」を消して、ログがあれば表示する
             with st.container(border=True, height=500):
-                if current_logs:
-                    # ログがある場合は、スクショの「待機中」を消してリストを表示
-                    for log in current_logs:
-                        gift_id = log.get('gift_id')
-                        user_name = log.get('name', '不明')
-                        num = log.get('num', 1)
-                        img_url = f"https://static.showroom-live.com/image/gift/{gift_id}_s.png"
-                        
+                if display_list:
+                    for g in display_list:
+                        img_url = f"https://static.showroom-live.com/image/gift/{g['gift_id']}_s.png"
                         st.markdown(f"""
-                        <div style="display:flex; align-items:center; margin-bottom:8px; padding-bottom:5px; border-bottom:1px solid #f0f2f6;">
+                        <div style="display:flex; align-items:center; margin-bottom:8px;">
                             <img src="{img_url}" width="24" style="margin-right:10px;">
                             <div style="line-height:1.2;">
-                                <div style="font-size:0.85em; font-weight:bold;">{user_name}</div>
-                                <div style="font-size:0.75em; color:gray;">×{num}</div>
+                                <div style="font-size:0.85em; font-weight:bold;">{g['name']}</div>
+                                <div style="font-size:0.75em; color:gray;">×{g['num']}</div>
                             </div>
                         </div>
                         """, unsafe_allow_html=True)
                 else:
-                    # ログが0件の時だけ、スクショにある青い「待機中」を出す
+                    # ログが0件の時だけこの青い枠が出る
                     st.info("待機中... (自動更新をお待ちください)")
 
-        # --- ログを確実に溜めるための「受信機」側への1行追加（念のため） ---
-        # 受信機側の on_message 内で st.session_state ではなく globals() を使っているか再確認してください
         with col_fan:
             st.markdown("### 🏆 ファンリスト")
             with st.container(border=True, height=500):
