@@ -477,6 +477,17 @@ if st.button("トラッキング開始", key="start_button"):
         if not st.session_state.get("is_master_access", False) and input_room_id not in valid_ids:
             st.error("指定されたルームIDが見つからないか、認証されていないルームIDか、現在配信中ではありません。")
         else:
+            # 1. broadcast_info APIから接続情報を取得
+            import requests
+            b_url = f"https://www.showroom-live.com/api/live/broadcast_info?room_id={input_room_id}"
+            b_res = requests.get(b_url, headers=HEADERS, timeout=5).json()
+            
+            # 2. 接続に必要な情報をセッションに保存（他のルームでも動くようにする）
+            # ※portも含め、APIから来た情報を全て保持するこの形を正解とします
+            st.session_state.bcsvr_host = b_res.get("bcsvr_host")
+            st.session_state.bcsvr_port = b_res.get("bcsvr_port")
+            st.session_state.bcsvr_key  = b_res.get("bcsvr_key")
+
             st.session_state.is_tracking = True
             st.session_state.room_id = input_room_id
             st.session_state.comment_log = []
@@ -641,6 +652,51 @@ if st.session_state.is_tracking:
         fan_list, total_fan_count = get_fan_list(st.session_state.room_id)
         st.session_state.fan_list = fan_list
         st.session_state.total_fan_count = total_fan_count
+
+        # --- ここから「無償ギフト受信機」の設置 ---
+        import websocket
+        import json
+        import threading
+
+        # メッセージが届いた時の処理（星投げイベントなどを解析）
+        def on_message(ws, message):
+            try:
+                msg_list = json.loads(message)
+                for raw_msg in msg_list:
+                    # 無償ギフト(t: "gift" かつ p: 0)を判定
+                    if raw_msg.get("t") == "gift" and raw_msg.get("p", 0) == 0:
+                        new_gift = {
+                            "name": raw_msg.get("u_name"),
+                            "gift_id": raw_msg.get("g_id"),
+                            "num": raw_msg.get("n")
+                        }
+                        # セッション内のリストに追加（最新5件の重複チェック付き）
+                        if new_gift not in st.session_state.free_gift_log[:5]:
+                            st.session_state.free_gift_log.insert(0, new_gift)
+            except Exception:
+                pass
+
+        # 接続を開始する関数（1回だけ起動するように制御）
+        if "ws_connected" not in st.session_state or not st.session_state.ws_connected:
+            def run_ws():
+                host = st.session_state.get("bcsvr_host")
+                port = st.session_state.get("bcsvr_port")
+                key = st.session_state.get("bcsvr_key")
+                
+                if host and key:
+                    # 接続URLを組み立て
+                    ws_url = f"wss://{host}/"
+                    ws = websocket.WebSocketApp(ws_url, on_message=on_message)
+                    # 接続した瞬間に「認証キー」を送信する
+                    ws.on_open = lambda ws: ws.send(f"SUB\t{key}")
+                    ws.run_forever()
+
+            # 別スレッドで実行してStreamlitの邪魔をしないようにする
+            thread = threading.Thread(target=run_ws, daemon=True)
+            thread.start()
+            st.session_state.ws_connected = True
+        # --- ここまで貼り付け ---
+
 
         st.markdown("---")
         st.markdown("<h2 style='font-size:2em;'>📊 リアルタイムダッシュボード</h2>", unsafe_allow_html=True)
