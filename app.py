@@ -659,7 +659,7 @@ if st.session_state.is_tracking:
         st.session_state.fan_list = fan_list
         st.session_state.total_fan_count = total_fan_count
 
-# --- 受信機：エンドポイント変更版 ---
+# --- 受信機：最終解決版 ---
         import websocket
         import json
         import threading
@@ -671,9 +671,11 @@ if st.session_state.is_tracking:
 
         st.write(f"📡 デバッグ情報: {st.session_state.ws_debug_msg}")
 
+        # メッセージ受信時の処理
         def on_message(ws, message):
             try:
                 msg_list = json.loads(message)
+                updated = False
                 for raw_msg in msg_list:
                     # t:gift かつ p:0 が星・種
                     if raw_msg.get("t") == "gift" and str(raw_msg.get("p")) == "0":
@@ -685,51 +687,58 @@ if st.session_state.is_tracking:
                         if "free_gift_log" in st.session_state:
                             if new_gift not in st.session_state.free_gift_log[:15]:
                                 st.session_state.free_gift_log.insert(0, new_gift)
+                                updated = True
+                if updated:
+                    st.rerun()
             except: pass
 
         def on_open(ws):
             key = st.session_state.get("bcsvr_key")
-            if key: ws.send(f"SUB\t{key}")
+            if key:
+                ws.send(f"SUB\t{key}")
 
+        # 接続開始のメインロジック
         if not st.session_state.get("ws_active", False):
             rid = st.session_state.get("room_id")
             if rid:
                 try:
-                    # 確実に情報の取れる「streaming_url」APIを使用
-                    # ここはbroadcast_infoよりも制限が緩く、hostとkeyを確実に返します
-                    api_url = f"https://www.showroom-live.com/api/live/streaming_url?room_id={rid}&_={int(time.time()*1000)}"
-                    
-                    # 既存のHEADERSをそのまま利用
+                    # あなたが提示してくれたデータを取得するURL
+                    api_url = f"https://www.showroom-live.com/api/live/broadcast_info?room_id={rid}"
                     res = requests.get(api_url, headers=HEADERS, timeout=5)
                     data = res.json()
                     
-                    # streaming_url APIから接続情報を抽出
-                    # このAPIでは、streaming_urlのリストの中にbcsvrの情報が含まれています
-                    streams = data.get("streaming_url_list", [])
-                    if streams:
-                        # 最初の要素から情報を取得
-                        host = streams[0].get("bcsvr_host")
-                        key = streams[0].get("bcsvr_key")
-                        
-                        if host and key:
-                            st.session_state.bcsvr_host = host
-                            st.session_state.bcsvr_key = key
-                            
-                            def run_ws():
-                                ws = websocket.WebSocketApp(f"wss://{host}/", on_message=on_message, on_open=on_open)
-                                ws.run_forever()
+                    # 提示されたJSON構造から直接取得
+                    host = data.get("bcsvr_host")
+                    key = data.get("bcsvr_key")
 
-                            t = threading.Thread(target=run_ws, daemon=True)
-                            t.start()
-                            st.session_state.ws_active = True
-                            st.session_state.ws_debug_msg = "✅ 受信機が動き出しました"
-                            st.rerun()
-                        else:
-                            st.session_state.ws_debug_msg = "❌ API応答内にhost/keyが見つかりません"
+                    if host and key:
+                        # セッションに値を固定
+                        st.session_state.bcsvr_host = host
+                        st.session_state.bcsvr_key = key
+                        
+                        def run_ws():
+                            # ポートは標準の443(wss)で接続
+                            ws_url = f"wss://{host}/"
+                            ws = websocket.WebSocketApp(
+                                ws_url,
+                                on_message=on_message,
+                                on_open=on_open
+                            )
+                            ws.run_forever()
+
+                        # スレッド起動
+                        t = threading.Thread(target=run_ws, daemon=True)
+                        t.start()
+                        
+                        st.session_state.ws_active = True
+                        st.session_state.ws_debug_msg = "✅ 受信機が動き出しました"
+                        time.sleep(0.1)
+                        st.rerun()
                     else:
-                        st.session_state.ws_debug_msg = f"❌ ストリーム情報が空です: {data.get('errors', '配信中か確認してください')}"
+                        # 取得失敗時の詳細デバッグ
+                        st.session_state.ws_debug_msg = f"❌ データ不備: host={host}, key={key}"
                 except Exception as e:
-                    st.session_state.ws_debug_msg = f"❌ 通信失敗: {str(e)}"
+                    st.session_state.ws_debug_msg = f"❌ 通信例外: {str(e)}"
 
 
 
