@@ -684,23 +684,22 @@ if st.session_state.is_tracking:
             def on_message(ws, message):
                 try:
                     data = json.loads(message)
-                    # 👈 修正：log_ptr（固定された古い参照）を使わず、
-                    # 常に「今」の globals()['FINAL_LOG'] を直接叩く
-                    target = globals().get('FINAL_LOG')
-                    if target is None: return
+                    # 👈 log_ptr ではなく、常に現在の globals() から箱を取得する
+                    # これにより、リブートや画面更新で箱の場所が変わっても追従できます
+                    current_box = globals().get('FINAL_LOG')
+                    if current_box is None: return
 
                     for d in data:
-                        # 条件判定はあなたの設計通り（t=gift, p=0）
                         if d.get("t") == "gift" and str(d.get("p")) == "0":
                             item = {
                                 "name": d.get("u_name", "不明"),
                                 "gift_id": d.get("g_id"),
                                 "num": d.get("n", 1)
                             }
-                            # 最新の「箱」にねじ込む
-                            target.insert(0, item)
-                            if len(target) > 50:
-                                target.pop()
+                            # 最新の箱にねじ込む
+                            current_box.insert(0, item)
+                            if len(current_box) > 50:
+                                current_box.pop()
                 except Exception as e:
                     # ここでエラーが出るなら「箱」へのアクセスミスです
                     g = globals().get('FINAL_LOG')
