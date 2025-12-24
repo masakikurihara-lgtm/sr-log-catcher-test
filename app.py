@@ -659,7 +659,7 @@ if st.session_state.is_tracking:
         st.session_state.fan_list = fan_list
         st.session_state.total_fan_count = total_fan_count
 
-# --- 自己修復機能付き受信機 ---
+# --- 最終修正：API解析の強化版 ---
         import websocket
         import json
         import threading
@@ -671,15 +671,21 @@ if st.session_state.is_tracking:
 
         st.write(f"📡 デバッグ情報: {st.session_state.ws_debug_msg}")
 
-        # --- 受信処理の中身 ---
+        # 1. 受信したメッセージを処理する関数
         def on_message(ws, message):
             try:
                 msg_list = json.loads(message)
                 for raw_msg in msg_list:
-                    if raw_msg.get("t") == "gift" and raw_msg.get("p", 0) == 0:
-                        new_gift = {"name": raw_msg.get("u_name"), "gift_id": raw_msg.get("g_id"), "num": raw_msg.get("n")}
-                        if new_gift not in st.session_state.free_gift_log[:10]:
-                            st.session_state.free_gift_log.insert(0, new_gift)
+                    # t: "gift" かつ p: 0 (無償)
+                    if raw_msg.get("t") == "gift" and str(raw_msg.get("p")) == "0":
+                        new_gift = {
+                            "name": raw_msg.get("u_name"),
+                            "gift_id": raw_msg.get("g_id"),
+                            "num": raw_msg.get("n")
+                        }
+                        if "free_gift_log" in st.session_state:
+                            if new_gift not in st.session_state.free_gift_log[:10]:
+                                st.session_state.free_gift_log.insert(0, new_gift)
             except:
                 pass
 
@@ -688,39 +694,44 @@ if st.session_state.is_tracking:
             if key:
                 ws.send(f"SUB\t{key}")
 
-        # --- スレッドの起動管理 ---
-        if "ws_active" not in st.session_state or not st.session_state.ws_active:
-            # 1. もしhostが空なら、ここで直接取得を試みる（自己修復）
-            host = st.session_state.get("bcsvr_host")
-            key = st.session_state.get("bcsvr_key")
-            
-            if not host or not key:
+        # 2. 接続開始の判定
+        if not st.session_state.get("ws_active", False):
+            rid = st.session_state.get("room_id")
+            if rid:
                 try:
-                    b_url = f"https://www.showroom-live.com/api/live/broadcast_info?room_id={st.session_state.room_id}"
-                    b_res = requests.get(b_url, headers=HEADERS, timeout=5).json()
-                    host = b_res.get("bcsvr_host")
-                    key = b_res.get("bcsvr_key")
-                    st.session_state.bcsvr_host = host
-                    st.session_state.bcsvr_key = key
-                except:
-                    pass
+                    # 直接APIから値を変数に入れる
+                    res = requests.get(f"https://www.showroom-live.com/api/live/broadcast_info?room_id={rid}", timeout=5)
+                    data = res.json()
+                    
+                    # 提示いただいたデータ構造に基づき、確実に値を取得
+                    host = data.get("bcsvr_host")
+                    key = data.get("bcsvr_key")
 
-            # 2. hostが確保できたらスレッド開始
-            if host and key:
-                def run_ws_loop():
-                    ws_url = f"wss://{host}/"
-                    ws = websocket.WebSocketApp(ws_url, on_message=on_message, on_open=on_open)
-                    ws.run_forever()
+                    if host and key:
+                        # セッションに再保存
+                        st.session_state.bcsvr_host = host
+                        st.session_state.bcsvr_key = key
+                        
+                        # スレッドを立てて接続
+                        def run_ws():
+                            ws = websocket.WebSocketApp(
+                                f"wss://{host}/",
+                                on_message=on_message,
+                                on_open=on_open
+                            )
+                            ws.run_forever()
 
-                t = threading.Thread(target=run_ws_loop, daemon=True)
-                t.start()
-                
-                st.session_state.ws_active = True
-                st.session_state.ws_debug_msg = "✅ 受信機が動き出しました"
-                time.sleep(0.1)
-                st.rerun()
-            else:
-                st.session_state.ws_debug_msg = f"❌ ルームID({st.session_state.room_id})の接続情報が取得できません"
+                        t = threading.Thread(target=run_ws, daemon=True)
+                        t.start()
+                        
+                        st.session_state.ws_active = True
+                        st.session_state.ws_debug_msg = "✅ 受信機が動き出しました"
+                        time.sleep(0.1)
+                        st.rerun()
+                    else:
+                        st.session_state.ws_debug_msg = "❌ API応答内にhostまたはkeyが見つかりません"
+                except Exception as e:
+                    st.session_state.ws_debug_msg = f"❌ 接続準備失敗: {str(e)}"
 
 
         st.markdown("---")
