@@ -659,7 +659,7 @@ if st.session_state.is_tracking:
         st.session_state.fan_list = fan_list
         st.session_state.total_fan_count = total_fan_count
 
-# --- ブラウザ偽装＋全データ強制表示版 ---
+# --- HEADERS流用＋URL偽装版 ---
         import websocket
         import json
         import threading
@@ -675,11 +675,14 @@ if st.session_state.is_tracking:
             try:
                 msg_list = json.loads(message)
                 for raw_msg in msg_list:
+                    # p:0 が無償ギフト
                     if raw_msg.get("t") == "gift" and str(raw_msg.get("p")) == "0":
                         new_gift = {"name": raw_msg.get("u_name"), "gift_id": raw_msg.get("g_id"), "num": raw_msg.get("n")}
                         if "free_gift_log" in st.session_state:
                             if new_gift not in st.session_state.free_gift_log[:10]:
                                 st.session_state.free_gift_log.insert(0, new_gift)
+                                # 受信したら画面を更新
+                                st.rerun()
             except: pass
 
         def on_open(ws):
@@ -690,19 +693,14 @@ if st.session_state.is_tracking:
             rid = st.session_state.get("room_id")
             if rid:
                 try:
-                    # 【重要】ブラウザのフリを極限まで高める
-                    custom_headers = {
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                        "Accept": "application/json, text/plain, */*",
-                        "Referer": f"https://www.showroom-live.com/room/profile?room_id={rid}",
-                        "X-Requested-With": "XMLHttpRequest"
-                    }
-                    
-                    res = requests.get(f"https://www.showroom-live.com/api/live/broadcast_info?room_id={rid}", headers=custom_headers, timeout=5)
+                    # 既存のHEADERS（プログラム冒頭で定義されているはずのもの）を使用
+                    # もしHEADERSという変数がなければ、前回のcustom_headersをここに入れます
+                    res = requests.get(
+                        f"https://www.showroom-live.com/api/live/broadcast_info?room_id={rid}",
+                        headers=HEADERS, # ★ここを既存のHEADERSに変更
+                        timeout=5
+                    )
                     data = res.json()
-                    
-                    # 届いた中身を「キー（項目名）だけ」一旦全部出す
-                    keys_found = list(data.keys())
                     
                     host = data.get("bcsvr_host")
                     key = data.get("bcsvr_key")
@@ -712,7 +710,10 @@ if st.session_state.is_tracking:
                         st.session_state.bcsvr_key = key
                         
                         def run_ws():
-                            ws = websocket.WebSocketApp(f"wss://{host}/", on_message=on_message, on_open=on_open)
+                            # 念のためポート番号も考慮したURLに
+                            port = data.get("bcsvr_port", 443)
+                            ws_url = f"wss://{host}/" 
+                            ws = websocket.WebSocketApp(ws_url, on_message=on_message, on_open=on_open)
                             ws.run_forever()
 
                         t = threading.Thread(target=run_ws, daemon=True)
@@ -721,11 +722,8 @@ if st.session_state.is_tracking:
                         st.session_state.ws_debug_msg = "✅ 受信機が動き出しました"
                         st.rerun()
                     else:
-                        # ここで「実際に何が返ってきたか」を詳細に出す
-                        st.session_state.ws_debug_msg = f"❌ キーが不足。受信項目: {keys_found}"
-                        # 万が一エラーメッセージが入っていればそれも出す
-                        if "error" in data:
-                            st.session_state.ws_debug_msg += f" | エラー内容: {data['error']}"
+                        # まだダメな場合は、受け取ったエラーメッセージを詳細に出す
+                        st.session_state.ws_debug_msg = f"❌ サーバー拒絶: {data.get('errors', '不明なエラー')}"
                 except Exception as e:
                     st.session_state.ws_debug_msg = f"❌ 通信失敗: {str(e)}"
 
