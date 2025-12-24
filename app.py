@@ -659,7 +659,7 @@ if st.session_state.is_tracking:
         st.session_state.fan_list = fan_list
         st.session_state.total_fan_count = total_fan_count
 
-# --- 受信機：URL組み立て修正版 ---
+# --- 受信機：live_info 修正版 ---
         import websocket
         import json
         import threading
@@ -674,35 +674,39 @@ if st.session_state.is_tracking:
         def on_message(ws, message):
             try:
                 msg_list = json.loads(message)
+                updated = False
                 for raw_msg in msg_list:
+                    # t:gift かつ p:0 が星・種
                     if raw_msg.get("t") == "gift" and str(raw_msg.get("p")) == "0":
-                        new_gift = {"name": raw_msg.get("u_name"), "gift_id": raw_msg.get("g_id"), "num": raw_msg.get("n")}
+                        new_gift = {
+                            "name": raw_msg.get("u_name"),
+                            "gift_id": raw_msg.get("g_id"),
+                            "num": raw_msg.get("n")
+                        }
                         if "free_gift_log" in st.session_state:
                             if new_gift not in st.session_state.free_gift_log[:15]:
                                 st.session_state.free_gift_log.insert(0, new_gift)
-                                st.rerun()
+                                updated = True
+                if updated:
+                    st.rerun()
             except: pass
 
         def on_open(ws):
             key = st.session_state.get("bcsvr_key")
-            if key: ws.send(f"SUB\t{key}")
+            if key:
+                ws.send(f"SUB\t{key}")
 
+        # 接続開始のロジック
         if not st.session_state.get("ws_active", False):
-            # room_idを徹底的にクリーニング
-            rid_raw = st.session_state.get("room_id")
-            if rid_raw:
+            rid = st.session_state.get("room_id")
+            if rid:
                 try:
-                    # 数字以外をすべて排除し、文字列にする
-                    rid = "".join(filter(str.isdigit, str(rid_raw)))
-                    
-                    # params引数を使ってrequestsに安全にURLを組み立てさせる
-                    api_url = "https://www.showroom-live.com/api/live/broadcast_info"
-                    payload = {"room_id": rid}
-                    
-                    # 他のAPIで成功しているHEADERSを流用
-                    res = requests.get(api_url, params=payload, headers=HEADERS, timeout=5)
+                    # 正しい公開API: live_info を使用
+                    api_url = f"https://www.showroom-live.com/api/live/live_info?room_id={rid}"
+                    res = requests.get(api_url, headers=HEADERS, timeout=5)
                     data = res.json()
                     
+                    # live_info のレスポンスから host と key を取得
                     host = data.get("bcsvr_host")
                     key = data.get("bcsvr_key")
 
@@ -711,17 +715,23 @@ if st.session_state.is_tracking:
                         st.session_state.bcsvr_key = key
                         
                         def run_ws():
-                            ws = websocket.WebSocketApp(f"wss://{host}/", on_message=on_message, on_open=on_open)
+                            ws_url = f"wss://{host}/"
+                            ws = websocket.WebSocketApp(
+                                ws_url,
+                                on_message=on_message,
+                                on_open=on_open
+                            )
                             ws.run_forever()
 
                         t = threading.Thread(target=run_ws, daemon=True)
                         t.start()
+                        
                         st.session_state.ws_active = True
                         st.session_state.ws_debug_msg = "✅ 受信機が動き出しました"
+                        time.sleep(0.1)
                         st.rerun()
                     else:
-                        # 失敗した時の「実際の送信URL」を確認
-                        st.session_state.ws_debug_msg = f"❌ 拒絶: {data} (送出URL: {res.url})"
+                        st.session_state.ws_debug_msg = f"❌ API成功ですが接続情報がありません: {data}"
                 except Exception as e:
                     st.session_state.ws_debug_msg = f"❌ 通信例外: {str(e)}"
 
