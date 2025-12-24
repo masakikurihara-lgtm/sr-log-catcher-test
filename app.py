@@ -704,9 +704,11 @@ if st.session_state.is_tracking:
 
             def on_open(ws):
                 time.sleep(3)
-                # 👈 確実に「SUB」「物理タブ」「キー」「改行」を認識させる書き方に変えます
-                payload = f"SUB\t{key}\n"
-                ws.send(payload)
+                # 👈 ここを「本質的」に書き換えます
+                # 文字列結合ではなく、サーバーが待っている「SUB」「タブ」「キー」「改行」を
+                # 直接バイナリとして正確に叩き込みます。
+                auth_str = f"SUB\t{key}\n"
+                ws.send(auth_str.encode('utf-8')) # 確実に UTF-8 バイナリで送信
 
             ws = websocket.WebSocketApp(f"wss://{host}/", on_message=on_message, on_open=on_open)
             globals()['FINAL_WS_RUNNING'] = True
