@@ -9,6 +9,7 @@ import ftplib
 import io
 import datetime
 import os
+import websocket
 
 
 def upload_csv_to_ftp(filename: str, csv_buffer: io.BytesIO):
@@ -662,17 +663,21 @@ if st.session_state.is_tracking:
         def on_message(ws, message):
             try:
                 msg_list = json.loads(message)
+                updated = False
                 for raw_msg in msg_list:
-                    # 無償ギフト(t: "gift" かつ p: 0)を判定
                     if raw_msg.get("t") == "gift" and raw_msg.get("p", 0) == 0:
                         new_gift = {
                             "name": raw_msg.get("u_name"),
                             "gift_id": raw_msg.get("g_id"),
                             "num": raw_msg.get("n")
                         }
-                        # セッション内のリストに追加（最新5件の重複チェック付き）
                         if new_gift not in st.session_state.free_gift_log[:5]:
                             st.session_state.free_gift_log.insert(0, new_gift)
+                            updated = True
+                
+                # データが更新されたら画面を強制リロードさせる
+                if updated:
+                    st.rerun()
             except Exception:
                 pass
 
