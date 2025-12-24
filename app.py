@@ -659,7 +659,7 @@ if st.session_state.is_tracking:
         st.session_state.fan_list = fan_list
         st.session_state.total_fan_count = total_fan_count
 
-# --- 受信機：最終解決版 ---
+# --- 受信機：ヘッダー補強版 ---
         import websocket
         import json
         import threading
@@ -671,72 +671,54 @@ if st.session_state.is_tracking:
 
         st.write(f"📡 デバッグ情報: {st.session_state.ws_debug_msg}")
 
-        # メッセージ受信時の処理
         def on_message(ws, message):
             try:
                 msg_list = json.loads(message)
-                updated = False
                 for raw_msg in msg_list:
-                    # t:gift かつ p:0 が星・種
                     if raw_msg.get("t") == "gift" and str(raw_msg.get("p")) == "0":
-                        new_gift = {
-                            "name": raw_msg.get("u_name"),
-                            "gift_id": raw_msg.get("g_id"),
-                            "num": raw_msg.get("n")
-                        }
+                        new_gift = {"name": raw_msg.get("u_name"), "gift_id": raw_msg.get("g_id"), "num": raw_msg.get("n")}
                         if "free_gift_log" in st.session_state:
                             if new_gift not in st.session_state.free_gift_log[:15]:
                                 st.session_state.free_gift_log.insert(0, new_gift)
-                                updated = True
-                if updated:
-                    st.rerun()
+                                st.rerun()
             except: pass
 
         def on_open(ws):
             key = st.session_state.get("bcsvr_key")
-            if key:
-                ws.send(f"SUB\t{key}")
+            if key: ws.send(f"SUB\t{key}")
 
-        # 接続開始のメインロジック
         if not st.session_state.get("ws_active", False):
             rid = st.session_state.get("room_id")
             if rid:
                 try:
-                    # あなたが提示してくれたデータを取得するURL
+                    # 1. 既存のHEADERSをコピーして、1行だけ追加
+                    current_headers = HEADERS.copy()
+                    current_headers["X-Requested-With"] = "XMLHttpRequest"
+                    
+                    # 2. APIリクエスト
                     api_url = f"https://www.showroom-live.com/api/live/broadcast_info?room_id={rid}"
-                    res = requests.get(api_url, headers=HEADERS, timeout=5)
+                    res = requests.get(api_url, headers=current_headers, timeout=5)
                     data = res.json()
                     
-                    # 提示されたJSON構造から直接取得
                     host = data.get("bcsvr_host")
                     key = data.get("bcsvr_key")
 
                     if host and key:
-                        # セッションに値を固定
                         st.session_state.bcsvr_host = host
                         st.session_state.bcsvr_key = key
                         
                         def run_ws():
-                            # ポートは標準の443(wss)で接続
-                            ws_url = f"wss://{host}/"
-                            ws = websocket.WebSocketApp(
-                                ws_url,
-                                on_message=on_message,
-                                on_open=on_open
-                            )
+                            ws = websocket.WebSocketApp(f"wss://{host}/", on_message=on_message, on_open=on_open)
                             ws.run_forever()
 
-                        # スレッド起動
                         t = threading.Thread(target=run_ws, daemon=True)
                         t.start()
-                        
                         st.session_state.ws_active = True
                         st.session_state.ws_debug_msg = "✅ 受信機が動き出しました"
-                        time.sleep(0.1)
                         st.rerun()
                     else:
-                        # 取得失敗時の詳細デバッグ
-                        st.session_state.ws_debug_msg = f"❌ データ不備: host={host}, key={key}"
+                        # まだ取れない場合は、返ってきたJSONの中身をそのまま表示
+                        st.session_state.ws_debug_msg = f"❌ 応答内容: {data}"
                 except Exception as e:
                     st.session_state.ws_debug_msg = f"❌ 通信例外: {str(e)}"
 
