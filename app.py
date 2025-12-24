@@ -420,61 +420,51 @@ def get_fan_list(room_id):
 
 def start_free_gift_ws(room_id: str):
     """
-    無償ギフト取得用 WebSocket スレッド
+    SHOWROOM 無償ギフト取得（すこアニ互換・正解版）
     """
     def run():
-        try:
-            # 1. streaming_url 取得
-            info = requests.get(
-                f"https://www.showroom-live.com/api/live/streaming_url?room_id={room_id}",
-                headers=HEADERS,
-                timeout=5
-            ).json()
+        ws_url = "wss://prxy.showroom-live.com:443"
 
-            stream = info["streaming_url_list"][0]
-            ws_url = f"wss://{stream['host']}:{stream['port']}"
-            sub_key = stream["key"]
+        def on_open(ws):
+            # key は room_id そのもの
+            ws.send(f"SUB {room_id}")
 
-            def on_open(ws):
-                ws.send(f"SUB {sub_key}")
+        def on_message(ws, message):
+            if not message.startswith("MSG"):
+                return
+            try:
+                _, rid, event_type, payload = message.split(" ", 3)
 
-            def on_message(ws, message):
-                # MSG <roomid> <type> <json>
-                if not message.startswith("MSG"):
-                    return
-                try:
-                    _, _, event_type, payload = message.split(" ", 3)
-                    if event_type != "2":
-                        return
+                if event_type != "2":
+                    return  # ギフト以外
 
-                    data = json.loads(payload)
-                    if data.get("gt") != 1:
-                        return  # 無償ギフトのみ
+                data = json.loads(payload)
 
-                    st.session_state.ws_queue.put({
-                        "created_at": data.get("t"),
-                        "user_id": data.get("u"),
-                        "name": data.get("n"),
-                        "gift_id": data.get("g"),
-                        "num": data.get("c", 1),
-                        "avatar_id": data.get("a"),
-                    })
-                except Exception:
-                    pass
+                if data.get("gt") != 1:
+                    return  # 無償ギフトのみ
 
-            ws = websocket.WebSocketApp(
-                ws_url,
-                on_open=on_open,
-                on_message=on_message
-            )
-            ws.run_forever()
+                st.session_state.ws_queue.put({
+                    "created_at": data.get("t"),
+                    "user_id": data.get("u"),
+                    "name": data.get("n"),
+                    "gift_id": data.get("g"),
+                    "num": data.get("c", 1),
+                    "avatar_id": data.get("a"),
+                })
 
-        except Exception:
-            pass
+            except Exception as e:
+                print("WS MSG ERROR:", e)
 
-    st.session_state.ws_running = True
+        ws = websocket.WebSocketApp(
+            ws_url,
+            on_open=on_open,
+            on_message=on_message
+        )
+        ws.run_forever()
+
     th = threading.Thread(target=run, daemon=True)
     st.session_state.ws_thread = th
+    st.session_state.ws_running = True
     th.start()
 
 
