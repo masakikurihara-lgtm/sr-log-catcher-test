@@ -665,74 +665,77 @@ if st.session_state.is_tracking:
         st.session_state.total_fan_count = total_fan_count
 
 
-        # --- 1. 接続設定と共有バッファ ---
+        # --- 1. 接続情報の自力取得と受信 ---
         import websocket
         import json
         import threading
         import time
+        import requests
 
-        if 'free_gift_log' not in st.session_state:
+        # 共有ログの初期化
+        if "free_gift_log" not in st.session_state:
             st.session_state.free_gift_log = []
 
-        # --- 2. 受信機：サーバーが拒絶できない形式で接続 ---
-        def start_ws_final():
-            host = st.session_state.get("bcsvr_host")
-            key = st.session_state.get("bcsvr_key")
-            
+        # --- 2. 受信機関数 ---
+        def start_ws_standalone(rid, host, key):
             def on_message(ws, message):
                 try:
-                    # 届いたデータが何であれ、まずは「何か届いた」という証拠を残す
                     data_list = json.loads(message)
                     for d in data_list:
-                        # 全てのギフト(p:0に限らず)をキャッチ
+                        # ギフト全般を検知
                         if d.get("t") == "gift":
-                            new_item = {
-                                "name": d.get("u_name", "不明"),
-                                "gift_id": d.get("g_id"),
-                                "num": d.get("n", 1)
-                            }
+                            new_item = {"name": d.get("u_name", "不明"), "gift_id": d.get("g_id"), "num": d.get("n", 1)}
                             st.session_state.free_gift_log.insert(0, new_item)
-                            if len(st.session_state.free_gift_log) > 20:
-                                st.session_state.free_gift_log.pop()
+                            if len(st.session_state.free_gift_log) > 20: st.session_state.free_gift_log.pop()
                 except: pass
 
             def on_open(ws):
-                # サーバーが確実に反応する改行コードとタイミング
                 time.sleep(1)
                 ws.send(f"SUB\t{key}\n")
 
-            # タイムアウトや切断を防ぐ設定
-            ws = websocket.WebSocketApp(
-                f"wss://{host}/",
-                on_message=on_message,
-                on_open=on_open,
-                header={"User-Agent": "Mozilla/5.0"} # ツールと誤認されないためのヘッダー
-            )
+            ws = websocket.WebSocketApp(f"wss://{host}/", on_message=on_message, on_open=on_open)
             ws.run_forever(ping_interval=20)
 
-        # --- 3. 実行制御（複雑な判定を捨ててシンプルに） ---
-        if st.session_state.get("bcsvr_host") and not st.session_state.get("ws_started"):
-            thread = threading.Thread(target=start_ws_final, daemon=True)
-            thread.start()
-            st.session_state.ws_started = True
+        # --- 3. 実行制御（ここでNoneを阻止する） ---
+        rid = st.session_state.get("room_id")
 
-        # --- 4. 表示セクション（ここが「待機中」を書き換える部分） ---
-        st.markdown("### 🌟 無償ギフト (リアルタイム更新)")
+        if rid:
+            # 接続情報がNoneなら、ここで今すぐ取得する
+            if not st.session_state.get("bcsvr_host") or st.session_state.get("bcsvr_host") == "None":
+                try:
+                    # HEADERSは既存のものを使用
+                    res = requests.get(f"https://www.showroom-live.com/api/live/live_info?room_id={rid}", headers=HEADERS).json()
+                    st.session_state.bcsvr_host = res.get("bcsvr_host")
+                    st.session_state.bcsvr_key = res.get("bcsvr_key")
+                except:
+                    st.error("APIから接続情報を取得できませんでした。Room IDを確認してください。")
+
+            # 住所と鍵が揃ったら、スレッドを1回だけ建てる
+            if st.session_state.get("bcsvr_host") and not st.session_state.get("ws_active"):
+                t = threading.Thread(
+                    target=start_ws_standalone, 
+                    args=(rid, st.session_state.bcsvr_host, st.session_state.bcsvr_key), 
+                    daemon=True
+                )
+                t.start()
+                st.session_state.ws_active = True
+
+        # --- 4. 表示（接続状況を可視化） ---
+        st.markdown("### 🌟 無償ギフト")
+        if st.session_state.get("ws_active"):
+            status_msg = f"✅ 接続中: {st.session_state.get('bcsvr_host')}"
+        else:
+            status_msg = "❌ 待機中（Room IDを入力してください）"
+
+        st.caption(status_msg)
+
         with st.container(border=True, height=500):
-            logs = st.session_state.free_gift_log
-            if logs:
-                for log in logs:
+            if st.session_state.free_gift_log:
+                for log in st.session_state.free_gift_log:
                     img_url = f"https://static.showroom-live.com/image/gift/{log['gift_id']}_s.png"
-                    st.markdown(f"""
-                    <div style="display:flex; align-items:center; margin-bottom:5px;">
-                        <img src="{img_url}" width="20" style="margin-right:5px;">
-                        <span style="font-size:0.8em;">{log['name']} ×{log['num']}</span>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.markdown(f"<div><img src='{img_url}' width='20'> {log['name']} ×{log['num']}</div>", unsafe_allow_html=True)
             else:
-                # 接続情報を再掲してデバッグ
-                st.write("🛰️ サーバー接続完了。星・種の受信を待っています...")
-                st.caption(f"接続先: {st.session_state.get('bcsvr_host')}")
+                st.write("信号受信待ち... (星や種が投げられるのを待っています)")
 
 
 
