@@ -681,17 +681,25 @@ if st.session_state.is_tracking:
             globals()['WS_INSTANCE'] = None
 
         def ws_engine_core(rid, host, port, key):
+            log_ptr = globals().get('FINAL_LOG')
+            if log_ptr is None: return
+
             def on_message(ws, message):
                 try:
-                    # 📡 これが出れば「8080番」からの生データ到達が確定します
-                    log_ptr = globals().get('FINAL_LOG')
-                    log_ptr.insert(0, {"name": "📡生データ捕捉", "gift_id": "1", "num": str(message)[:100]})
+                    msg_str = message.decode('utf-8') if isinstance(message, bytes) else str(message)
+                    
+                    # --- 解析の肝：サーバーからのACK（承認要求）に応答する ---
+                    if msg_str.startswith("ACK\t"):
+                        # サーバーから届いた ACK 行をそのまま投げ返す（これで蛇口が開く）
+                        ws.send(f"{msg_str}\n".encode('utf-8'))
+                        log_ptr.insert(0, {"name": "🔑認証完了", "gift_id": "1", "num": "データ受信開始"})
+                        return
 
-                    # 無償ギフト(p=0)の抽出
-                    data = json.loads(message)
+                    # 受信データの解析
+                    data = json.loads(msg_str)
                     if isinstance(data, list):
                         for d in data:
-                            # 無償ギフト(t=gift かつ p=0)
+                            # 無償ギフト(p=0)の判定
                             if d.get("t") == "gift" and str(d.get("p")) == "0":
                                 item = {
                                     "name": d.get("u_name", "不明"),
@@ -704,14 +712,13 @@ if st.session_state.is_tracking:
                     pass
 
             def on_open(ws):
-                # 8080番ポートへの認証コマンド。末尾に改行を必須とします
-                auth_cmd = f"SUB\t{key}\n"
-                ws.send(auth_cmd.encode('utf-8'))
+                # 最初の接続要求
+                ws.send(f"SUB\t{key}\n".encode('utf-8'))
 
-            # API指定の host:8080 (ws://)
+            # APIレスポンス通りの 8080番ポートを使用
             ws_url = f"ws://{host}:{port}/"
             ws = websocket.WebSocketApp(ws_url, on_message=on_message, on_open=on_open)
-            globals()['WS_INSTANCE'] = ws
+            
             globals()['FINAL_WS_RUNNING'] = True
             ws.run_forever(ping_interval=20, ping_timeout=10)
             globals()['FINAL_WS_RUNNING'] = False
