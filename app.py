@@ -681,25 +681,23 @@ if st.session_state.is_tracking:
         def ws_engine_core(rid, host, key):
             def on_message(ws, message):
                 try:
-                    data_list = json.loads(message)
-                    for d in data_list:
-                        # 無償ギフト(p:0)の判定
+                    data = json.loads(message)
+                    # グローバルメモリを確保
+                    if 'FINAL_LOG' not in globals():
+                        globals()['FINAL_LOG'] = []
+
+                    for d in data:
+                        # 無償ギフト(p:0)かつギフトタイプ(t:gift)を狙い撃ち
                         if d.get("t") == "gift" and str(d.get("p")) == "0":
-                            # アプリの再実行でも消えない「共通の箱」を作成
-                            if 'PERMANENT_GIFT_LOG' not in globals():
-                                globals()['PERMANENT_GIFT_LOG'] = []
-                            
-                            new_item = {
+                            item = {
                                 "name": d.get("u_name", "不明"),
                                 "gift_id": d.get("g_id"),
                                 "num": d.get("n", 1)
                             }
-                            
-                            log_ref = globals()['PERMANENT_GIFT_LOG']
-                            # 重複を避けて先頭に追加
-                            if not log_ref or log_ref[0] != new_item:
-                                log_ref.insert(0, new_item)
-                                if len(log_ref) > 50: log_ref.pop()
+                            # メモリの先頭に追加
+                            globals()['FINAL_LOG'].insert(0, item)
+                            if len(globals()['FINAL_LOG']) > 50:
+                                globals()['FINAL_LOG'].pop()
                 except:
                     pass
 
@@ -837,28 +835,28 @@ if st.session_state.is_tracking:
         with col_free_gift:
             st.markdown("### 🌟 無償ギフト")
             
-            # 共通メモリ（globals）から今あるデータを直接引き出す
-            # これにより、リフレッシュによる変数の消失を防ぎます
-            current_data = globals().get('PERMANENT_GIFT_LOG', [])
+            # 物理メモリ(globals)から直接リストを取得
+            # これが st.session_state よりも確実にデータを保持します
+            logs = globals().get('FINAL_LOG', [])
             
-            st.caption(f"📡 受信ログ: {len(current_data)}件")
+            st.caption(f"📡 受信ログ: {len(logs)}件")
 
             with st.container(border=True, height=500):
-                if current_data:
-                    # データがあれば、スクショの「待機中...」を消して表示
-                    for g in current_data:
+                if logs:
+                    # ログが1件でもあれば、スクショの青い枠は消えます
+                    for g in logs:
                         img_url = f"https://static.showroom-live.com/image/gift/{g['gift_id']}_s.png"
                         st.markdown(f"""
-                        <div style="display:flex; align-items:center; margin-bottom:8px; border-bottom:1px solid #eee; padding-bottom:5px;">
-                            <img src="{img_url}" width="24" style="margin-right:10px;">
+                        <div style="display:flex; align-items:center; margin-bottom:10px; border-bottom:1px solid #eee; padding-bottom:5px;">
+                            <img src="{img_url}" width="25" style="margin-right:12px;">
                             <div style="line-height:1.2;">
-                                <div style="font-size:0.85em; font-weight:bold;">{g['name']}</div>
-                                <div style="font-size:0.75em; color:gray;">×{g['num']}</div>
+                                <div style="font-size:0.9em; font-weight:bold;">{g['name']}</div>
+                                <div style="font-size:0.8em; color:gray;">×{g['num']}</div>
                             </div>
                         </div>
                         """, unsafe_allow_html=True)
                 else:
-                    # ログが0件の時だけ、スクショの青いメッセージを表示
+                    # 0件の時だけスクショの青い枠を表示
                     st.info("待機中... (自動更新をお待ちください)")
 
         with col_fan:
