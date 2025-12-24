@@ -9,49 +9,6 @@ import ftplib
 import io
 import datetime
 import os
-import websocket
-import threading
-import json
-import queue
-
-
-
-def debug_showroom_ws(room_id: str):
-    """
-    SHOWROOM WebSocket 検証用
-    受信した生データをすべて print する
-    """
-    def run():
-        ws_url = "wss://prxy.showroom-live.com:443"
-
-        def on_open(ws):
-            print("=== WS OPEN ===")
-            ws.send(f"SUB {room_id}")
-            print("=== SUB SENT:", room_id, "===")
-
-        def on_message(ws, message):
-            print("=== WS RAW MESSAGE ===")
-            print(message)
-
-        def on_error(ws, error):
-            print("=== WS ERROR ===")
-            print(error)
-
-        def on_close(ws):
-            print("=== WS CLOSE ===")
-
-        ws = websocket.WebSocketApp(
-            ws_url,
-            on_open=on_open,
-            on_message=on_message,
-            on_error=on_error,
-            on_close=on_close,
-        )
-        ws.run_forever()
-
-    threading.Thread(target=run, daemon=True).start()
-
-
 
 
 def upload_csv_to_ftp(filename: str, csv_buffer: io.BytesIO):
@@ -325,6 +282,8 @@ if "comment_log" not in st.session_state:
     st.session_state.comment_log = []
 if "gift_log" not in st.session_state:
     st.session_state.gift_log = []
+if "free_gift_log" not in st.session_state:
+    st.session_state.free_gift_log = []
 if "fan_list" not in st.session_state:
     st.session_state.fan_list = []
 if "gift_list_map" not in st.session_state:
@@ -333,19 +292,6 @@ if 'onlives_data' not in st.session_state:
     st.session_state.onlives_data = {}
 if 'total_fan_count' not in st.session_state:
     st.session_state.total_fan_count = 0
-
-if "free_gift_log" not in st.session_state:
-    st.session_state.free_gift_log = []
-
-if "ws_queue" not in st.session_state:
-    st.session_state.ws_queue = queue.Queue()
-
-if "ws_thread" not in st.session_state:
-    st.session_state.ws_thread = None
-
-if "ws_running" not in st.session_state:
-    st.session_state.ws_running = False
-
 
 # --- API連携関数 ---
 
@@ -455,58 +401,6 @@ def get_fan_list(room_id):
             break
     return fan_list, total_user_count
 
-
-def start_free_gift_ws(room_id: str):
-    """
-    SHOWROOM 無償ギフト取得（すこアニ互換・正解版）
-    """
-    def run():
-        ws_url = "wss://prxy.showroom-live.com:443"
-
-        def on_open(ws):
-            # key は room_id そのもの
-            ws.send(f"SUB {room_id}")
-
-        def on_message(ws, message):
-            if not message.startswith("MSG"):
-                return
-            try:
-                _, rid, event_type, payload = message.split(" ", 3)
-
-                if event_type != "2":
-                    return  # ギフト以外
-
-                data = json.loads(payload)
-
-                if data.get("gt") != 1:
-                    return  # 無償ギフトのみ
-
-                st.session_state.ws_queue.put({
-                    "created_at": data.get("t"),
-                    "user_id": data.get("u"),
-                    "name": data.get("n"),
-                    "gift_id": data.get("g"),
-                    "num": data.get("c", 1),
-                    "avatar_id": data.get("a"),
-                })
-
-            except Exception as e:
-                print("WS MSG ERROR:", e)
-
-        ws = websocket.WebSocketApp(
-            ws_url,
-            on_open=on_open,
-            on_message=on_message
-        )
-        ws.run_forever()
-
-    th = threading.Thread(target=run, daemon=True)
-    st.session_state.ws_thread = th
-    st.session_state.ws_running = True
-    th.start()
-
-
-
 # --- ルームリスト取得関数 ---
 def get_room_list():
     try:
@@ -583,24 +477,17 @@ if st.button("トラッキング開始", key="start_button"):
         if not st.session_state.get("is_master_access", False) and input_room_id not in valid_ids:
             st.error("指定されたルームIDが見つからないか、認証されていないルームIDか、現在配信中ではありません。")
         else:
-            # ① 先に room_id を確定
-            st.session_state.room_id = input_room_id
-
-            # ② 状態初期化
             st.session_state.is_tracking = True
+            st.session_state.room_id = input_room_id
             st.session_state.comment_log = []
             st.session_state.gift_log = []
+            st.session_state.free_gift_log = []
             st.session_state.gift_list_map = {}
             st.session_state.fan_list = []
             st.session_state.total_fan_count = 0
-
-            # ③ 最後に WebSocket 開始（← ここが重要）
-            start_free_gift_ws(st.session_state.room_id)
-
             st.rerun()
     else:
         st.error("ルームIDを入力してください。")
-
 
 if st.button("トラッキング停止", key="stop_button", disabled=not st.session_state.is_tracking):
     if st.session_state.is_tracking:
@@ -679,11 +566,6 @@ if st.session_state.is_tracking:
         st.markdown(f'<div class="tracking-success">{link_html} の配信をトラッキング中です！</div>', unsafe_allow_html=True)
 
         st_autorefresh(interval=10000, limit=None, key="dashboard_refresh")
-        while not st.session_state.ws_queue.empty():
-            st.session_state.free_gift_log.append(
-                st.session_state.ws_queue.get()
-            )
-
         st.session_state.comment_log = get_and_update_log("comment", st.session_state.room_id)
         st.session_state.gift_log = get_and_update_log("gift", st.session_state.room_id)
         import math
@@ -765,7 +647,8 @@ if st.session_state.is_tracking:
         st.markdown(f"**最終更新日時 (日本時間): {datetime.datetime.now(JST).strftime('%Y-%m-%d %H:%M:%S')}**")
         st.markdown(f"<p style='font-size:12px; color:#a1a1a1;'>※約10秒ごとに自動更新されます。</p>", unsafe_allow_html=True)
 
-        col_comment, col_gift, col_fan = st.columns(3)
+        # col_comment, col_gift, col_fan = st.columns(3)
+        col_comment, col_gift, col_free_gift, col_fan = st.columns(4)
         with col_comment:
             st.markdown("### 📝 コメント")
             with st.container(border=True, height=500):
@@ -837,45 +720,26 @@ if st.session_state.is_tracking:
                         st.markdown(html, unsafe_allow_html=True)
                 else:
                     st.info("ギフトがありません。")
-
-        with col_gift:
-            st.markdown("### 🎁 無償ギフト")
+        with col_free_gift:
+            st.markdown("### 🌟 無償ギフト")
             with st.container(border=True, height=500):
                 if st.session_state.free_gift_log:
-                    for log in reversed(st.session_state.free_gift_log):
-                        created_at = datetime.datetime.fromtimestamp(
-                            log["created_at"], JST
-                        ).strftime("%H:%M:%S")
-
-                        avatar = (
-                            f"https://static.showroom-live.com/image/avatar/{log['avatar_id']}.png"
-                            if log.get("avatar_id") else DEFAULT_AVATAR
-                        )
-
-                        gift = st.session_state.gift_list_map.get(
-                            str(log["gift_id"]), {}
-                        )
-
-                        st.markdown(f"""
-                        <div class="gift-item">
-                          <div class="gift-item-row">
-                            <img src="{avatar}" class="gift-avatar"/>
-                            <div class="gift-content">
-                              <div class="gift-time">{created_at}</div>
-                              <div class="gift-user">{log['name']}</div>
-                              <div class="gift-info-row">
-                                <img src="{gift.get('image','')}" class="gift-image"/>
-                                ×{log['num']}
-                              </div>
-                            </div>
-                          </div>
+                    for log in st.session_state.free_gift_log:
+                        user_name = log.get('name', '匿名')
+                        gift_id = log.get('gift_id')
+                        gift_count = log.get('num', 0)
+                        img_url = f"https://static.showroom-live.com/image/gift/{gift_id}_s.png"
+                        
+                        html = f"""
+                        <div style="display:flex; align-items:center; margin-bottom:5px;">
+                            <img src="{img_url}" width="20" style="margin-right:5px;">
+                            <span style="font-size:0.8em;">{user_name} ×{gift_count}</span>
                         </div>
-                        <hr>
-                        """, unsafe_allow_html=True)
+                        <hr style="border:none; border-top:1px solid #eee; margin:5px 0;">
+                        """
+                        st.markdown(html, unsafe_allow_html=True)
                 else:
-                    st.info("無償ギフトはまだありません。")
-
-
+                    st.info("待機中...")
         with col_fan:
             st.markdown("### 🏆 ファンリスト")
             with st.container(border=True, height=500):
