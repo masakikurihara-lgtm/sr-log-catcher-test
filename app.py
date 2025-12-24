@@ -704,7 +704,9 @@ if st.session_state.is_tracking:
 
             def on_open(ws):
                 time.sleep(3)
-                ws.send("SUB" + "\t" + str(key) + "\n")
+                # 👈 確実に「SUB」「物理タブ」「キー」「改行」を認識させる書き方に変えます
+                payload = f"SUB\t{key}\n"
+                ws.send(payload)
 
             ws = websocket.WebSocketApp(f"wss://{host}/", on_message=on_message, on_open=on_open)
             globals()['FINAL_WS_RUNNING'] = True
