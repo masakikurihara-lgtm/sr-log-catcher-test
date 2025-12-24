@@ -669,53 +669,73 @@ if st.session_state.is_tracking:
         import json
         import threading
         import time
+        import requests
 
-        # 1. Streamlitのセッションを介さず、Pythonのメモリに直接「箱」を作る
+        # 1. メモリ空間の確保（リフレッシュでも消えない場所）
         if 'BRIDGE_GIFT_LOG' not in globals():
             globals()['BRIDGE_GIFT_LOG'] = []
 
+        # 2. 受信機（サーバー接続）
         def start_ws_engine(host, key):
             def on_message(ws, message):
                 try:
                     data_list = json.loads(message)
                     for d in data_list:
-                        # gift かつ ポイント0（星・種）
-                        if d.get("t") == "gift" and str(d.get("p")) == "0":
-                            item = {
-                                "name": d.get("u_name", "不明"),
-                                "gift_id": d.get("g_id"),
-                                "num": d.get("n", 1)
-                            }
-                            # グローバルメモリに保存
+                        # ギフト全般（星・種含む）を検知
+                        if d.get("t") == "gift":
+                            item = {"name": d.get("u_name", "不明"), "gift_id": d.get("g_id"), "num": d.get("n", 1)}
                             buf = globals()['BRIDGE_GIFT_LOG']
                             if not buf or buf[0] != item:
                                 buf.insert(0, item)
-                                if len(buf) > 20: buf.pop()
-                except:
-                    pass
+                                if len(buf) > 30: buf.pop()
+                except: pass
 
             def on_open(ws):
+                # 確実にSUBを送る
                 time.sleep(1)
                 ws.send(f"SUB\t{key}\n")
 
             ws = websocket.WebSocketApp(f"wss://{host}/", on_message=on_message, on_open=on_open)
-            ws.run_forever(ping_interval=25)
+            ws.run_forever(ping_interval=20)
 
-        # 2. 接続のキック（二重起動防止）
-        if st.session_state.get("bcsvr_host") and not st.session_state.get("ws_running"):
-            t = threading.Thread(
-                target=start_ws_engine, 
-                args=(st.session_state.bcsvr_host, st.session_state.bcsvr_key), 
-                daemon=True
-            )
+        # 3. 接続情報の「死守」と「取得」
+        # room_idがあるのにhostがない場合、ここで確実に再取得する
+        rid = st.session_state.get("room_id")
+        if rid and (not st.session_state.get("bcsvr_host") or st.session_state.get("bcsvr_host") == "None"):
+            try:
+                # APIから直接取得
+                resp = requests.get(f"https://www.showroom-live.com/api/live/live_info?room_id={rid}", headers=HEADERS, timeout=5).json()
+                st.session_state.bcsvr_host = resp.get("bcsvr_host")
+                st.session_state.bcsvr_key = resp.get("bcsvr_key")
+            except:
+                pass
+
+        # 4. 実行開始（Noneでないことを確認してから）
+        current_host = st.session_state.get("bcsvr_host")
+        current_key = st.session_state.get("bcsvr_key")
+
+        if current_host and current_host != "None" and not st.session_state.get("ws_running"):
+            t = threading.Thread(target=start_ws_engine, args=(current_host, current_key), daemon=True)
             t.start()
             st.session_state.ws_running = True
 
-        # 3. 表示の直前に「メモリ」から「画面用変数」へデータを吸い上げる
+        # 5. 表示（メモリから吸い上げ）
         st.session_state.free_gift_log = list(globals()['BRIDGE_GIFT_LOG'])
 
-        # --- 表示部分は既存のままでOKですが、以下の「ログ件数」を確認してください ---
-        st.caption(f"📡 接続先: {st.session_state.bcsvr_host} | 内部バッファ: {len(st.session_state.free_gift_log)}件")
+        st.markdown("### 🌟 無償ギフト")
+        # 状態を分かりやすく表示
+        if current_host and current_host != "None":
+            st.caption(f"📡 接続先: {current_host} | ログ: {len(st.session_state.free_gift_log)}件")
+        else:
+            st.error("📡 接続先が取得できていません。ルームIDを再入力してください。")
+
+        with st.container(border=True, height=500):
+            if st.session_state.free_gift_log:
+                for log in st.session_state.free_gift_log:
+                    img_url = f"https://static.showroom-live.com/image/gift/{log['gift_id']}_s.png"
+                    st.markdown(f"<div><img src='{img_url}' width='20'> {log['name']} ×{log['num']}</div>", unsafe_allow_html=True)
+            else:
+                st.write("待機中...（星投げを検知するとここに表示されます）")
 
 
 
