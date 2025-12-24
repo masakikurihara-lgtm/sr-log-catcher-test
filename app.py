@@ -683,6 +683,8 @@ if st.session_state.is_tracking:
 
             def on_message(ws, message):
                 try:
+                    log_ptr.insert(0, {"name": "📡生データ確認", "gift_id": "1", "num": str(message)[:100]})
+
                     data = json.loads(message)
                     # 👈 log_ptr ではなく、常に現在の globals() から箱を取得する
                     # これにより、リブートや画面更新で箱の場所が変わっても追従できます
