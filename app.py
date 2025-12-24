@@ -682,10 +682,9 @@ if st.session_state.is_tracking:
             def on_message(ws, message):
                 try:
                     data = json.loads(message)
-                    # 👈 log_ptr ではなく直接 globals を叩く（あなたの今の構造を維持）
-                    if 'FINAL_LOG' not in globals():
-                        globals()['FINAL_LOG'] = []
-
+                    # 受信したこと自体を知らせるデバッグ（これが画面に出れば通信は通っています）
+                    if 'FINAL_LOG' not in globals(): globals()['FINAL_LOG'] = []
+                    
                     for d in data:
                         if d.get("t") == "gift" and str(d.get("p")) == "0":
                             item = {
@@ -696,13 +695,11 @@ if st.session_state.is_tracking:
                             globals()['FINAL_LOG'].insert(0, item)
                             if len(globals()['FINAL_LOG']) > 50:
                                 globals()['FINAL_LOG'].pop()
-                            
-                            # 👈 【重要】ここに追加。
-                            # globals に入れただけでは Streamlit は「画面を更新しろ」と気づけません。
-                            # セッション側に「何でもいいから書き込む」ことで、強制的に同期させます。
-                            st.session_state["FORCE_SYNC"] = time.time()
-                except:
-                    pass
+                except Exception as e:
+                    # 👈 ここを pass から書き換え。
+                    # エラーが起きているなら、それをログの代わりにねじ込みます。
+                    error_msg = {"name": "⚠️ ERROR", "gift_id": "1", "num": str(e)}
+                    globals()['FINAL_LOG'].insert(0, error_msg)
 
             def on_open(ws):
                 time.sleep(3)
