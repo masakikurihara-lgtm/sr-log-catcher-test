@@ -671,9 +671,9 @@ if st.session_state.is_tracking:
         import time
         import requests
 
-        # 1. メモリの絶対確保（ここだけはリセットしない）
-        if 'FINAL_LOG_BUFFER' not in globals():
-            globals()['FINAL_LOG_BUFFER'] = []
+        # 1. メモリの絶対確保（ここを FINAL_LOG に統一します）
+        if 'FINAL_LOG' not in globals():
+            globals()['FINAL_LOG'] = []
         if 'FINAL_WS_RUNNING' not in globals():
             globals()['FINAL_WS_RUNNING'] = False
 
