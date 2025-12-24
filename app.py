@@ -679,7 +679,9 @@ if st.session_state.is_tracking:
 
         # --- 修正箇所：ws_engine_core の直後 ---
         def ws_engine_core(rid, host, key):
-            # 👈 ここにあった log_ptr = globals()['FINAL_LOG'] を削除
+            # 👈 ここで現在の箱を定義しておかないと、on_message内でエラーになり沈黙します
+            log_ptr = globals().get('FINAL_LOG')
+            if log_ptr is None: return
 
             def on_message(ws, message):
                 try:
@@ -709,9 +711,9 @@ if st.session_state.is_tracking:
                         g.insert(0, {"name": "⚠️ ERROR", "gift_id": "1", "num": str(e)})
 
             def on_open(ws):
-                # 👈 time.sleep(3) を削除します。接続した瞬間に鍵を送るのが本質です。
-                # 確実に「SUB」「タブ」「キー」「改行」をバイナリで即座に叩き込みます。
-                ws.send(f"SUB\t{key}\n".encode('utf-8'))
+                # \n を取り除き、最後に \0 (ヌル文字) を付与するのがSHOWROOMプロトコルの正解です
+                auth_cmd = f"SUB\t{key}\0"
+                ws.send(auth_cmd.encode('utf-8'))
 
             ws = websocket.WebSocketApp(f"wss://{host}/", on_message=on_message, on_open=on_open)
             globals()['FINAL_WS_RUNNING'] = True
