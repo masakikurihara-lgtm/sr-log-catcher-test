@@ -671,30 +671,29 @@ if st.session_state.is_tracking:
         import time
         import requests
 
-        # 1. Streamlitの再実行に影響されない「絶対的な保管場所」
-        if 'PERMANENT_WS_ACTIVE' not in globals():
-            globals()['PERMANENT_WS_ACTIVE'] = False
-        if 'PERMANENT_GIFT_LOG' not in globals():
-            globals()['PERMANENT_GIFT_LOG'] = []
+        # 1. メモリの絶対確保（ここだけはリセットしない）
+        if 'FINAL_LOG_BUFFER' not in globals():
+            globals()['FINAL_LOG_BUFFER'] = []
+        if 'FINAL_WS_RUNNING' not in globals():
+            globals()['FINAL_WS_RUNNING'] = False
 
-        # 2. 受信機エンジン
-        def start_final_engine(host, key):
+        # 2. 受信機エンジン（判定を極限まで甘くし、とにかくログを出す）
+        def ws_engine_core(rid, host, key):
             def on_message(ws, message):
                 try:
                     data_list = json.loads(message)
                     for d in data_list:
-                        # 全てのギフト(t:gift)を対象にする
+                        # どんなデータでも「t:gift」なら即座に記録
                         if d.get("t") == "gift":
                             item = {
                                 "name": d.get("u_name", "不明"),
                                 "gift_id": d.get("g_id"),
                                 "num": d.get("n", 1)
                             }
-                            log_ptr = globals()['PERMANENT_GIFT_LOG']
-                            # データの重複を避けつつ先頭に追加
-                            if not log_ptr or log_ptr[0] != item:
-                                log_ptr.insert(0, item)
-                                if len(log_ptr) > 30: log_ptr.pop()
+                            buf = globals()['FINAL_LOG_BUFFER']
+                            if not buf or buf[0] != item:
+                                buf.insert(0, item)
+                                if len(buf) > 50: buf.pop()
                 except: pass
 
             def on_open(ws):
@@ -702,42 +701,49 @@ if st.session_state.is_tracking:
                 ws.send(f"SUB\t{key}\n")
 
             ws = websocket.WebSocketApp(f"wss://{host}/", on_message=on_message, on_open=on_open)
-            globals()['PERMANENT_WS_ACTIVE'] = True
-            ws.run_forever(ping_interval=20)
-            globals()['PERMANENT_WS_ACTIVE'] = False # 止まったらフラグを下げる
+            globals()['FINAL_WS_RUNNING'] = True
+            ws.run_forever(ping_interval=25)
+            globals()['FINAL_WS_RUNNING'] = False
 
-        # 3. 実行制御：PERMANENT_WS_ACTIVE が False の時だけ起動
-        host = st.session_state.get("bcsvr_host")
-        key = st.session_state.get("bcsvr_key")
+        # 3. 実行制御：ここでNoneを破壊する
+        target_rid = st.session_state.get("room_id")
 
-        if host and host != "None" and not globals()['PERMANENT_WS_ACTIVE']:
-            t = threading.Thread(target=start_final_engine, args=(host, key), daemon=True)
-            t.start()
-            # 起動を待つために一瞬待機
-            time.sleep(0.5)
+        if target_rid:
+            # 接続情報がないなら「今この瞬間に」取得を完了させる
+            if not st.session_state.get("bcsvr_host") or st.session_state.get("bcsvr_host") == "None":
+                try:
+                    # 他の処理を待たずに直接APIを叩く
+                    res = requests.get(f"https://www.showroom-live.com/api/live/live_info?room_id={target_rid}", timeout=5).json()
+                    st.session_state.bcsvr_host = res.get("bcsvr_host")
+                    st.session_state.bcsvr_key = res.get("bcsvr_key")
+                except:
+                    pass
 
-        # 4. 表示：リフレッシュのたびに「絶対的な保管場所」から吸い出す
-        st.session_state.free_gift_log = list(globals()['PERMANENT_GIFT_LOG'])
+            # ホストが判明し、かつ動いていないなら即座にスレッドを立てる
+            curr_host = st.session_state.get("bcsvr_host")
+            curr_key = st.session_state.get("bcsvr_key")
 
-        # UI表示
+            if curr_host and curr_key and not globals()['FINAL_WS_RUNNING']:
+                t = threading.Thread(target=ws_engine_core, args=(target_rid, curr_host, curr_key), daemon=True)
+                t.start()
+                time.sleep(1.0) # 起動待ち
+
+        # 4. 表示（グローバルメモリから強制吸い上げ）
+        st.session_state.free_gift_log = list(globals()['FINAL_LOG_BUFFER'])
+
         st.markdown("### 🌟 無償ギフト")
-        status_icon = "✅ 稼働中" if globals()['PERMANENT_WS_ACTIVE'] else "❌ 停止"
-        st.caption(f"📡 ステータス: {status_icon} | ログ: {len(st.session_state.free_gift_log)}件")
+        # 状態表示
+        is_active = globals()['FINAL_WS_RUNNING']
+        status_col = "green" if is_active else "red"
+        st.markdown(f"📡 ステータス: <span style='color:{status_col}; font-weight:bold;'>{'✅ 稼働中' if is_active else '❌ 停止'}</span> | ログ: {len(st.session_state.free_gift_log)}件", unsafe_allow_html=True)
 
         with st.container(border=True, height=500):
-            current_logs = st.session_state.free_gift_log
-            if current_logs:
-                for log in current_logs:
+            if st.session_state.free_gift_log:
+                for log in st.session_state.free_gift_log:
                     img_url = f"https://static.showroom-live.com/image/gift/{log['gift_id']}_s.png"
-                    st.markdown(f"""
-                    <div style="display:flex; align-items:center; margin-bottom:8px;">
-                        <img src="{img_url}" width="25" style="margin-right:10px;">
-                        <span style="font-size:0.9em;"><b>{log['name']}</b> ×{log['num']}</span>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.markdown(f"<div style='margin-bottom:5px;'><img src='{img_url}' width='25'> <b>{log['name']}</b> ×{log['num']}</div>", unsafe_allow_html=True)
             else:
-                st.write("信号受信待ち... (接続先: " + str(host) + ")")
-
+                st.write(f"信号受信待ち... (接続先: {st.session_state.get('bcsvr_host')})")
 
 
 
