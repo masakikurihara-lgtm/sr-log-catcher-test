@@ -679,13 +679,15 @@ if st.session_state.is_tracking:
 
         # --- 修正箇所：ws_engine_core の直後 ---
         def ws_engine_core(rid, host, key):
-            # スレッドが開始された瞬間に、globalsのリストへの参照を直接変数に固定する
-            if 'FINAL_LOG' not in globals():
-                globals()['FINAL_LOG'] = []
-            log_ptr = globals()['FINAL_LOG']  # これが「本尊」への直接ルート
+            # 👈 ここにあった log_ptr = globals()['FINAL_LOG'] を削除
 
             def on_message(ws, message):
                 try:
+                    # 👈 常に「今」のグローバル変数からリストを取得する
+                    # これにより、リブート後も「表の画面」と同じ箱に書き込みます
+                    current_log = globals().get('FINAL_LOG')
+                    if current_log is None: return
+
                     data = json.loads(message)
                     for d in data:
                         if d.get("t") == "gift" and str(d.get("p")) == "0":
@@ -694,13 +696,16 @@ if st.session_state.is_tracking:
                                 "gift_id": d.get("g_id"),
                                 "num": d.get("n", 1)
                             }
-                            # 👈 globals() 経由ではなく、固定した log_ptr に直接入れる
-                            log_ptr.insert(0, item)
-                            if len(log_ptr) > 50:
-                                log_ptr.pop()
+                            # 常に最新の参照にデータをねじ込む
+                            current_log.insert(0, item)
+                            if len(current_log) > 50:
+                                current_log.pop()
+
                 except Exception as e:
-                    # エラーが出た場合、ログとして強制表示
-                    log_ptr.insert(0, {"name": "⚠️ ERROR", "gift_id": "1", "num": str(e)})
+                    # エラーが起きているなら、それを物理的にねじ込む
+                    err_list = globals().get('FINAL_LOG')
+                    if err_list is not None:
+                        err_list.insert(0, {"name": "⚠️ ERROR", "gift_id": "1", "num": str(e)})
 
             def on_open(ws):
                 # 👈 time.sleep(3) を削除します。接続した瞬間に鍵を送るのが本質です。
