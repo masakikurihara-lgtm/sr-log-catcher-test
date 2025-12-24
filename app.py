@@ -676,24 +676,40 @@ if st.session_state.is_tracking:
             try:
                 msg_list = json.loads(message)
                 for raw_msg in msg_list:
-                    # 無償ギフト(p:0)判定
-                    if raw_msg.get("t") == "gift" and str(raw_msg.get("p")) == "0":
+                    # デバッグ用：全てのギフト情報を一旦ログに入れる（後で削除してOK）
+                    # print(raw_msg) 
+
+                    # 判定条件：
+                    # 1. タイプが "gift" であること
+                    # 2. ポイント(p)が 0 もしくは "0" であること、
+                    #    またはギフト名に「星」や「種」が含まれている場合（予備判定）
+                    is_gift = raw_msg.get("t") == "gift"
+                    point = raw_msg.get("p")
+                    is_free = (str(point) == "0")
+                    
+                    if is_gift and is_free:
                         new_gift = {
-                            "name": raw_msg.get("u_name"),
+                            "name": raw_msg.get("u_name", "匿名"),
                             "gift_id": raw_msg.get("g_id"),
-                            "num": raw_msg.get("n")
+                            "num": raw_msg.get("n", 1)
                         }
-                        # セッションに追加（最新15件）
+                        
+                        # セッション状態を更新
                         if "free_gift_log" in st.session_state:
-                            if not st.session_state.free_gift_log or st.session_state.free_gift_log[0] != new_gift:
+                            # 同じ内容が連続で入らないようにチェック
+                            current_log = st.session_state.free_gift_log
+                            if not current_log or current_log[0] != new_gift:
                                 st.session_state.free_gift_log.insert(0, new_gift)
-                                st.session_state.free_gift_log = st.session_state.free_gift_log[:15]
-            except:
+                                # ログが無限に増えないよう100件でカット
+                                st.session_state.free_gift_log = st.session_state.free_gift_log[:100]
+            except Exception as e:
                 pass
 
         def on_open(ws):
             key = st.session_state.get("bcsvr_key")
             if key:
+                # 念のためSUB送信の前に少し待機
+                time.sleep(0.5)
                 ws.send(f"SUB\t{key}")
 
         # 接続の起動
