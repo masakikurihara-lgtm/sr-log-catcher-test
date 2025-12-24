@@ -677,14 +677,16 @@ if st.session_state.is_tracking:
         if 'FINAL_WS_RUNNING' not in globals():
             globals()['FINAL_WS_RUNNING'] = False
 
-        # 2. 受信機エンジン（判定を極限まで甘くし、とにかくログを出す）
+        # --- 修正箇所：ws_engine_core の直後 ---
         def ws_engine_core(rid, host, key):
+            # スレッドが開始された瞬間に、globalsのリストへの参照を直接変数に固定する
+            if 'FINAL_LOG' not in globals():
+                globals()['FINAL_LOG'] = []
+            log_ptr = globals()['FINAL_LOG']  # これが「本尊」への直接ルート
+
             def on_message(ws, message):
                 try:
                     data = json.loads(message)
-                    # 受信したこと自体を知らせるデバッグ（これが画面に出れば通信は通っています）
-                    if 'FINAL_LOG' not in globals(): globals()['FINAL_LOG'] = []
-                    
                     for d in data:
                         if d.get("t") == "gift" and str(d.get("p")) == "0":
                             item = {
@@ -692,14 +694,13 @@ if st.session_state.is_tracking:
                                 "gift_id": d.get("g_id"),
                                 "num": d.get("n", 1)
                             }
-                            globals()['FINAL_LOG'].insert(0, item)
-                            if len(globals()['FINAL_LOG']) > 50:
-                                globals()['FINAL_LOG'].pop()
+                            # 👈 globals() 経由ではなく、固定した log_ptr に直接入れる
+                            log_ptr.insert(0, item)
+                            if len(log_ptr) > 50:
+                                log_ptr.pop()
                 except Exception as e:
-                    # 👈 ここを pass から書き換え。
-                    # エラーが起きているなら、それをログの代わりにねじ込みます。
-                    error_msg = {"name": "⚠️ ERROR", "gift_id": "1", "num": str(e)}
-                    globals()['FINAL_LOG'].insert(0, error_msg)
+                    # エラーが出た場合、ログとして強制表示
+                    log_ptr.insert(0, {"name": "⚠️ ERROR", "gift_id": "1", "num": str(e)})
 
             def on_open(ws):
                 time.sleep(3)
@@ -728,13 +729,21 @@ if st.session_state.is_tracking:
             curr_host = st.session_state.get("bcsvr_host")
             curr_key = st.session_state.get("bcsvr_key")
 
+            # --- 修正箇所：threading.Thread の呼び出し部分 ---
             if curr_host and curr_key and not globals()['FINAL_WS_RUNNING']:
-                t = threading.Thread(target=ws_engine_core, args=(target_rid, curr_host, curr_key), daemon=True)
+                # rid, host, key すべてを確実に str() で囲んで渡す
+                t = threading.Thread(
+                    target=ws_engine_core, 
+                    args=(str(target_rid), str(curr_host), str(curr_key)), 
+                    daemon=True
+                )
                 t.start()
-                time.sleep(1.0) # 起動待ち
 
         # 4. 表示（グローバルメモリから強制吸い上げ）
         st.session_state.free_gift_log = list(globals().get('FINAL_LOG', []))
+
+        current_logs = globals().get('FINAL_LOG', [])
+        st.session_state.free_gift_log = list(current_logs)
 
         st.markdown("### 🌟 無償ギフト")
         # 状態表示
