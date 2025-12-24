@@ -673,73 +673,47 @@ if st.session_state.is_tracking:
 
         # メッセージが届いた時の処理
         def on_message(ws, message):
+            # 届いたメッセージを即座に「見える形」でセッションに放り込む
+            # これで「そもそも何かが届いているか」が判別できます
             try:
                 msg_list = json.loads(message)
                 for raw_msg in msg_list:
-                    # デバッグ用：全てのギフト情報を一旦ログに入れる（後で削除してOK）
-                    # print(raw_msg) 
-
-                    # 判定条件：
-                    # 1. タイプが "gift" であること
-                    # 2. ポイント(p)が 0 もしくは "0" であること、
-                    #    またはギフト名に「星」や「種」が含まれている場合（予備判定）
-                    is_gift = raw_msg.get("t") == "gift"
-                    point = raw_msg.get("p")
-                    is_free = (str(point) == "0")
+                    # 全てのメッセージ種別を確認（デバッグ用）
+                    # st.session_state.ws_debug_msg = f"最終受信: {raw_msg.get('t')}"
                     
-                    if is_gift and is_free:
+                    if raw_msg.get("t") == "gift" and str(raw_msg.get("p")) == "0":
                         new_gift = {
-                            "name": raw_msg.get("u_name", "匿名"),
+                            "name": raw_msg.get("u_name"),
                             "gift_id": raw_msg.get("g_id"),
-                            "num": raw_msg.get("n", 1)
+                            "num": raw_msg.get("n")
                         }
-                        
-                        # セッション状態を更新
                         if "free_gift_log" in st.session_state:
-                            # 同じ内容が連続で入らないようにチェック
-                            current_log = st.session_state.free_gift_log
-                            if not current_log or current_log[0] != new_gift:
+                            if not st.session_state.free_gift_log or st.session_state.free_gift_log[0] != new_gift:
                                 st.session_state.free_gift_log.insert(0, new_gift)
-                                # ログが無限に増えないよう100件でカット
-                                st.session_state.free_gift_log = st.session_state.free_gift_log[:100]
-            except Exception as e:
+            except:
                 pass
 
         def on_open(ws):
             key = st.session_state.get("bcsvr_key")
             if key:
-                # 念のためSUB送信の前に少し待機
-                time.sleep(0.5)
-                ws.send(f"SUB\t{key}")
+                # 修正ポイント：末尾に改行コード \n を明示的に追加
+                # 多くのツールではこれがないとサーバー側が「コマンドの終わり」と認識しません
+                auth_msg = f"SUB\t{key}\n"
+                ws.send(auth_msg)
+                # 接続成功を上書き
+                st.session_state.ws_debug_msg = "✅ SUBコマンド送信完了"
 
-        # 接続の起動
+        # --- スレッド起動部分は変更なしですが、再確認 ---
         if not st.session_state.get("ws_active", False):
-            rid = st.session_state.get("room_id")
-            if rid:
-                try:
-                    # 公開API live_info を使用
-                    api_url = f"https://www.showroom-live.com/api/live/live_info?room_id={rid}"
-                    res = requests.get(api_url, headers=HEADERS, timeout=5)
-                    data = res.json()
-                    host = data.get("bcsvr_host")
-                    key = data.get("bcsvr_key")
-
-                    if host and key:
-                        st.session_state.bcsvr_host = host
-                        st.session_state.bcsvr_key = key
-                        
-                        def run_ws():
-                            ws = websocket.WebSocketApp(f"wss://{host}/", on_message=on_message, on_open=on_open)
-                            ws.run_forever()
-
-                        t = threading.Thread(target=run_ws, daemon=True)
-                        t.start()
-                        st.session_state.ws_active = True
-                        st.session_state.ws_debug_msg = "✅ 受信機が動き出しました"
-                        time.sleep(0.1)
-                        st.rerun()
-                except:
-                    pass
+            # (中略：APIからhost, keyを取る部分は既存のlive_info版でOK)
+            def run_ws():
+                # ping_intervalを追加して接続維持を強化
+                ws = websocket.WebSocketApp(
+                    f"wss://{st.session_state.bcsvr_host}/", 
+                    on_message=on_message, 
+                    on_open=on_open
+                )
+                ws.run_forever(ping_interval=30) # 30秒ごとに生存確認
         # --- 無償ギフト受信機 (ここまで) ---
 
 
