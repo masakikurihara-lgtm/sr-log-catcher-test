@@ -665,76 +665,72 @@ if st.session_state.is_tracking:
         st.session_state.total_fan_count = total_fan_count
 
 
-# --- 安定稼働・全枠復旧版 ---
-        import websocket
-        import json
-        import threading
-        import requests
+# --- 1. WebSocket管理クラス (コードのなるべく上の方に記述) ---
+import websocket
+import json
+import threading
+import requests
 
-        # 1. 表示エリア（他のログを邪魔しないよう、まずは小さく）
-        ws_status_placeholder = st.empty()
+# 接続をアプリ全体で1つに固定するキャッシュ
+@st.cache_resource
+def get_ws_connection(host, key):
+    # ギフトを溜めるためのリスト
+    free_gifts = []
+    
+    def on_message(ws, message):
+        try:
+            data_list = json.loads(message)
+            for d in data_list:
+                # 星・種(p:0)の判定
+                if d.get("t") == "gift" and str(d.get("p")) == "0":
+                    new_item = {
+                        "name": d.get("u_name", "不明"),
+                        "gift_id": d.get("g_id"),
+                        "num": d.get("n", 1)
+                    }
+                    free_gifts.insert(0, new_item)
+                    if len(free_gifts) > 20: free_gifts.pop()
+        except: pass
 
-        # 2. 変数の初期化（落ちないように安全に取得）
-        if "free_gift_log" not in st.session_state:
-            st.session_state.free_gift_log = []
-        if "ws_counter" not in st.session_state:
-            st.session_state.ws_counter = 0
+    def on_open(ws):
+        ws.send(f"SUB\t{key}\n")
 
-        # 3. 接続情報 (host/key) がない場合のみ取得
-        rid = st.session_state.get("room_id")
-        if rid and not st.session_state.get("bcsvr_host"):
-            try:
-                # APIを叩く
-                res = requests.get(f"https://www.showroom-live.com/api/live/live_info?room_id={rid}", headers=HEADERS, timeout=5)
-                data = res.json()
-                st.session_state.bcsvr_host = data.get("bcsvr_host")
-                st.session_state.bcsvr_key = data.get("bcsvr_key")
-            except:
-                pass
+    ws = websocket.WebSocketApp(
+        f"wss://{host}/",
+        on_message=on_message,
+        on_open=on_open
+    )
+    
+    # 別スレッドで実行
+    wst = threading.Thread(target=ws.run_forever, daemon=True)
+    wst.start()
+    
+    return {"ws": ws, "log": free_gifts}
 
-        # 4. WebSocket受信処理
-        def on_message(ws, message):
-            try:
-                data_list = json.loads(message)
-                for d in data_list:
-                    if d.get("t") == "gift" and str(d.get("p")) == "0":
-                        new_data = {
-                            "name": d.get("u_name", "不明"),
-                            "gift_id": d.get("g_id"),
-                            "num": d.get("n", 1)
-                        }
-                        # リストの先頭に追加
-                        st.session_state.free_gift_log.insert(0, new_data)
-                        if len(st.session_state.free_gift_log) > 20:
-                            st.session_state.free_gift_log.pop()
-                st.session_state.ws_counter += 1
-            except:
-                pass
+# --- 2. 受信機実行セクション (現在の場所) ---
 
-        def on_open(ws):
-            key = st.session_state.get("bcsvr_key")
-            if key:
-                ws.send(f"SUB\t{key}\n")
+# 接続情報の取得
+rid = st.session_state.get("room_id")
+if rid and not st.session_state.get("bcsvr_host"):
+    try:
+        res = requests.get(f"https://www.showroom-live.com/api/live/live_info?room_id={rid}", headers=HEADERS, timeout=5).json()
+        st.session_state.bcsvr_host = res.get("bcsvr_host")
+        st.session_state.bcsvr_key = res.get("bcsvr_key")
+    except: pass
 
-        # 5. 接続開始（無限ループ回避のため rerun は行わない）
-        if st.session_state.get("bcsvr_host") and not st.session_state.get("ws_active", False):
-            def run_ws():
-                try:
-                    ws = websocket.WebSocketApp(
-                        f"wss://{st.session_state.bcsvr_host}/",
-                        on_message=on_message, on_open=on_open
-                    )
-                    st.session_state.ws_active = True
-                    ws.run_forever()
-                finally:
-                    st.session_state.ws_active = False
+# キャッシュを利用して接続を開始
+if st.session_state.get("bcsvr_host") and st.session_state.get("bcsvr_key"):
+    # ここで接続を確立（リロードしても1度しか実行されません）
+    ws_manager = get_ws_connection(st.session_state.bcsvr_host, st.session_state.bcsvr_key)
+    
+    # 受信したログをセッションに同期
+    st.session_state.free_gift_log = ws_manager["log"]
+    
+    status_msg = "✅ 受信機稼働中"
+else:
+    status_msg = "⚠️ 接続情報を取得中..."
 
-            t = threading.Thread(target=run_ws, daemon=True)
-            t.start()
-
-        # 6. ステータスを控えめに表示（これで他の枠の邪魔をしません）
-        status_txt = "✅ 接続中" if st.session_state.get("ws_active") else "❌ 待機中"
-        ws_status_placeholder.caption(f"📡 受信機: {status_txt} | 信号数: {st.session_state.ws_counter}")
+st.caption(f"📡 ステータス: {status_msg} (取得数: {len(st.session_state.get('free_gift_log', []))})")
 
 
 
