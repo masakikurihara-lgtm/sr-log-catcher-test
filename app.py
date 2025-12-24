@@ -478,25 +478,30 @@ if st.button("トラッキング開始", key="start_button"):
         if not st.session_state.get("is_master_access", False) and input_room_id not in valid_ids:
             st.error("指定されたルームIDが見つからないか、認証されていないルームIDか、現在配信中ではありません。")
         else:
-            # 1. broadcast_info APIから接続情報を取得
+            # --- 1. まず先にAPIから接続情報を「変数」として取る ---
             import requests
             b_url = f"https://www.showroom-live.com/api/live/broadcast_info?room_id={input_room_id}"
-            b_res = requests.get(b_url, headers=HEADERS, timeout=5).json()
-            
-            # 2. 接続に必要な情報をセッションに保存（他のルームでも動くようにする）
-            # ※portも含め、APIから来た情報を全て保持するこの形を正解とします
-            st.session_state.bcsvr_host = b_res.get("bcsvr_host")
-            st.session_state.bcsvr_port = b_res.get("bcsvr_port")
-            st.session_state.bcsvr_key  = b_res.get("bcsvr_key")
+            try:
+                b_res = requests.get(b_url, headers=HEADERS, timeout=5).json()
+                # ここでセッションにガッチリ保存する
+                st.session_state.bcsvr_host = b_res.get("bcsvr_host")
+                st.session_state.bcsvr_port = b_res.get("bcsvr_port")
+                st.session_state.bcsvr_key  = b_res.get("bcsvr_key")
+            except Exception as e:
+                st.error(f"接続情報の取得に失敗しました: {e}")
 
+            # --- 2. その後で他の状態を初期化する ---
             st.session_state.is_tracking = True
             st.session_state.room_id = input_room_id
             st.session_state.comment_log = []
             st.session_state.gift_log = []
-            st.session_state.free_gift_log = []
+            st.session_state.free_gift_log = [] 
             st.session_state.gift_list_map = {}
             st.session_state.fan_list = []
             st.session_state.total_fan_count = 0
+            
+            # --- 3. 最後にリセット（これを忘れると反映されない） ---
+            st.session_state.ws_active = False # 受信機を一度リセット
             st.rerun()
     else:
         st.error("ルームIDを入力してください。")
