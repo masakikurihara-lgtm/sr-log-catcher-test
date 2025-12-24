@@ -665,19 +665,17 @@ if st.session_state.is_tracking:
         st.session_state.total_fan_count = total_fan_count
 
 
-        # --- 1. WebSocket管理（スレッドが重複しないように管理） ---
+        # --- 1. スレッド間で共有する「箱」を、アプリ起動時に1度だけ作成 ---
         import websocket
         import json
         import threading
         import requests
 
-        # 接続がすでに存在するかチェック
-        if "ws_active" not in st.session_state:
-            st.session_state.ws_active = False
-        if "free_gift_log" not in st.session_state:
-            st.session_state.free_gift_log = []
+        # global変数を使ってStreamlitの制限を回避
+        if 'shared_free_gift_log' not in globals():
+            globals()['shared_free_gift_log'] = []
 
-        # 受信機本体の定義
+        # --- 2. 受信機本体の定義 ---
         def start_showroom_ws(host, key):
             def on_message(ws, message):
                 try:
@@ -690,12 +688,11 @@ if st.session_state.is_tracking:
                                 "gift_id": d.get("g_id"),
                                 "num": d.get("n", 1)
                             }
-                            # 既に最新1件と同じなら追加しない（重複防止）
-                            if not st.session_state.free_gift_log or st.session_state.free_gift_log[0] != new_item:
-                                st.session_state.free_gift_log.insert(0, new_item)
-                                # 履歴は最大20件
-                                if len(st.session_state.free_gift_log) > 20:
-                                    st.session_state.free_gift_log.pop()
+                            # グローバルなリストに直接追加
+                            log_ref = globals()['shared_free_gift_log']
+                            if not log_ref or log_ref[0] != new_item:
+                                log_ref.insert(0, new_item)
+                                if len(log_ref) > 20: log_ref.pop()
                 except:
                     pass
 
@@ -705,8 +702,7 @@ if st.session_state.is_tracking:
             ws = websocket.WebSocketApp(f"wss://{host}/", on_message=on_message, on_open=on_open)
             ws.run_forever()
 
-        # --- 2. 実行制御セクション ---
-        # 接続情報が必要な場合のみ取得
+        # --- 3. 接続と同期の制御 ---
         rid = st.session_state.get("room_id")
         if rid and not st.session_state.get("bcsvr_host"):
             try:
@@ -716,8 +712,8 @@ if st.session_state.is_tracking:
             except:
                 pass
 
-        # 接続がまだ開始されていなければ、1回だけスレッドを建てる
-        if st.session_state.get("bcsvr_host") and not st.session_state.ws_active:
+        # 接続開始
+        if st.session_state.get("bcsvr_host") and not st.session_state.get("ws_active", False):
             t = threading.Thread(
                 target=start_showroom_ws, 
                 args=(st.session_state.bcsvr_host, st.session_state.bcsvr_key), 
@@ -726,11 +722,11 @@ if st.session_state.is_tracking:
             t.start()
             st.session_state.ws_active = True
 
-        # 📡 接続状態の表示
-        status_icon = "✅" if st.session_state.ws_active else "❌"
-        st.caption(f"📡 受信機: {status_icon} 稼働中 (ログ: {len(st.session_state.free_gift_log)}件)")
+        # 重要：グローバルのリストを、今の表示用セッションに強制コピー
+        st.session_state.free_gift_log = list(globals()['shared_free_gift_log'])
 
-        # 区切り線（ここでのインデントエラーを防止）
+        # 📡 接続状態の表示
+        st.caption(f"📡 受信機: ✅ 稼働中 (累計ログ: {len(st.session_state.free_gift_log)}件)")
         st.markdown("---")
 
 
