@@ -810,24 +810,29 @@ if st.session_state.is_tracking:
                     st.info("ギフトがありません。")
         with col_free_gift:
             st.markdown("### 🌟 無償ギフト")
-            with st.container(border=True, height=500):
-                if st.session_state.free_gift_log:
-                    for log in st.session_state.free_gift_log:
-                        user_name = log.get('name', '匿名')
-                        gift_id = log.get('gift_id')
-                        gift_count = log.get('num', 0)
-                        img_url = f"https://static.showroom-live.com/image/gift/{gift_id}_s.png"
-                        
-                        html = f"""
-                        <div style="display:flex; align-items:center; margin-bottom:5px;">
-                            <img src="{img_url}" width="20" style="margin-right:5px;">
-                            <span style="font-size:0.8em;">{user_name} ×{gift_count}</span>
-                        </div>
-                        <hr style="border:none; border-top:1px solid #eee; margin:5px 0;">
-                        """
-                        st.markdown(html, unsafe_allow_html=True)
-                else:
-                    st.info("待機中...")
+            # プレースホルダー（空の容器）を作成
+            free_gift_placeholder = st.empty()
+            
+            # プレースホルダーの中に内容を書き込む
+            with free_gift_placeholder.container():
+                with st.container(border=True, height=500):
+                    if st.session_state.get('free_gift_log'):
+                        for log in st.session_state.free_gift_log:
+                            user_name = log.get('name', '匿名')
+                            gift_id = log.get('gift_id')
+                            gift_count = log.get('num', 0)
+                            img_url = f"https://static.showroom-live.com/image/gift/{gift_id}_s.png"
+                            
+                            html = f"""
+                            <div style="display:flex; align-items:center; margin-bottom:5px;">
+                                <img src="{img_url}" width="20" style="margin-right:5px;">
+                                <span style="font-size:0.8em;">{user_name} ×{gift_count}</span>
+                            </div>
+                            <hr style="border:none; border-top:1px solid #eee; margin:5px 0;">
+                            """
+                            st.markdown(html, unsafe_allow_html=True)
+                    else:
+                        st.info("待機中...")
         with col_fan:
             st.markdown("### 🏆 ファンリスト")
             with st.container(border=True, height=500):
