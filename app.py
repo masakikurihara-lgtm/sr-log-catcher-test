@@ -665,23 +665,25 @@ if st.session_state.is_tracking:
         st.session_state.total_fan_count = total_fan_count
 
 
-# --- 受信機：生存確認デバッグ版 ---
+# --- 受信機：エラー回避＆詳細ログ版 ---
         import websocket
         import json
         import threading
         import time
 
-        # 1. 状態表示用のプレースホルダー（画面の一番目立つ場所に出ます）
+        # 1. 状態表示用のプレースホルダー
         ws_status_box = st.empty()
 
-        # 2. 受信したデータを溜める「箱」を確実に用意
+        # 2. 初期化
         if "free_gift_log" not in st.session_state:
             st.session_state.free_gift_log = []
         if "ws_counter" not in st.session_state:
             st.session_state.ws_counter = 0
+        if "ws_last_error" not in st.session_state:
+            st.session_state.ws_last_error = "なし"
 
         def on_message(ws, message):
-            st.session_state.ws_counter += 1 # 何か届くたびにカウントアップ
+            st.session_state.ws_counter += 1
             try:
                 data_list = json.loads(message)
                 for d in data_list:
@@ -693,20 +695,24 @@ if st.session_state.is_tracking:
                             "num": d.get("n", 1),
                             "p": d.get("p")
                         }
-                        # セッションに直接ねじ込む
-                        st.session_state.free_gift_log.insert(0, new_data)
-                        st.session_state.free_gift_log = st.session_state.free_gift_log[:20]
-            except:
-                pass
+                        # セッションに保存
+                        if not st.session_state.free_gift_log or st.session_state.free_gift_log[0] != new_data:
+                            st.session_state.free_gift_log.insert(0, new_data)
+                            st.session_state.free_gift_log = st.session_state.free_gift_log[:20]
+            except Exception as e:
+                st.session_state.ws_last_error = str(e)
+
+        def on_error(ws, error):
+            st.session_state.ws_last_error = str(error)
 
         def on_open(ws):
             key = st.session_state.get("bcsvr_key")
             if key:
-                # サーバーに「データを送ってくれ」と頼む
                 ws.send(f"SUB\t{key}\n")
+            else:
+                st.session_state.ws_last_error = "キーが取得できていません"
 
-        # 3. 接続管理（ここが重要）
-        # すでに接続済みなら何もしない、切れていたら再接続
+        # 3. 接続管理
         if not st.session_state.get("ws_active", False):
             host = st.session_state.get("bcsvr_host")
             if host:
@@ -715,11 +721,10 @@ if st.session_state.is_tracking:
                         ws = websocket.WebSocketApp(
                             f"wss://{host}/",
                             on_message=on_message,
-                            on_open=on_open
+                            on_open=on_open,
+                            on_error=on_error
                         )
                         ws.run_forever()
-                    except:
-                        pass
                     finally:
                         st.session_state.ws_active = False
 
@@ -728,13 +733,17 @@ if st.session_state.is_tracking:
                 st.session_state.ws_active = True
                 st.rerun()
 
-        # --- 4. 画面に現在の通信状態を強制表示 ---
+        # --- 4. 画面表示（エラー回避済） ---
+        current_key = st.session_state.get('bcsvr_key', '不明')
+        display_key = str(current_key)[:10] if current_key else "なし"
         status_color = "green" if st.session_state.ws_active else "red"
+        
         ws_status_box.markdown(f"""
             <div style="background-color: #f0f2f6; padding: 10px; border-radius: 5px; border-left: 5px solid {status_color};">
-                <strong>📡 通信ステータス:</strong> {'接続中 (Active)' if st.session_state.ws_active else '切断 (Inactive)'}<br>
-                <strong>📥 受信パケット数:</strong> {st.session_state.ws_counter}<br>
-                <strong>🔑 キー:</strong> {st.session_state.get('bcsvr_key')[:10]}...
+                <strong>📡 通信ステータス:</strong> {'接続中' if st.session_state.ws_active else '切断'}<br>
+                <strong>📥 受信数:</strong> {st.session_state.ws_counter}<br>
+                <strong>⚠️ 最新エラー:</strong> {st.session_state.ws_last_error}<br>
+                <strong>🔑 Key一部:</strong> {display_key}
             </div>
         """, unsafe_allow_html=True)
 
