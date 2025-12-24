@@ -670,52 +670,54 @@ if st.session_state.is_tracking:
         import threading
         import time
         import requests
+        import streamlit as st
 
-        # 1. メモリの絶対確保（ここを FINAL_LOG に統一します）
+        # 1. メモリの絶対確保
         if 'FINAL_LOG' not in globals():
             globals()['FINAL_LOG'] = []
         if 'FINAL_WS_RUNNING' not in globals():
             globals()['FINAL_WS_RUNNING'] = False
 
-        # --- 修正箇所：ws_engine_core の直後 ---
-        def ws_engine_core(rid, host, key):
-            # 👈 ここで現在の箱を定義しておかないと、on_message内でエラーになり沈黙します
+        # --- 修正版：ws_engine_core (ポート対応) ---
+        def ws_engine_core(rid, host, port, key):
             log_ptr = globals().get('FINAL_LOG')
             if log_ptr is None: return
 
             def on_message(ws, message):
                 try:
-                    log_ptr.insert(0, {"name": "📡生データ確認", "gift_id": "1", "num": str(message)[:100]})
+                    # 受信した瞬間の生データを最優先で出す
+                    log_ptr.insert(0, {"name": "📡受信成功", "gift_id": "1", "num": str(message)[:100]})
 
                     data = json.loads(message)
-                    # 👈 log_ptr ではなく、常に現在の globals() から箱を取得する
-                    # これにより、リブートや画面更新で箱の場所が変わっても追従できます
                     current_box = globals().get('FINAL_LOG')
                     if current_box is None: return
 
-                    for d in data:
-                        if d.get("t") == "gift" and str(d.get("p")) == "0":
-                            item = {
-                                "name": d.get("u_name", "不明"),
-                                "gift_id": d.get("g_id"),
-                                "num": d.get("n", 1)
-                            }
-                            # 最新の箱にねじ込む
-                            current_box.insert(0, item)
-                            if len(current_box) > 50:
-                                current_box.pop()
+                    if isinstance(data, list):
+                        for d in data:
+                            # 無償ギフト(p=0)の判定
+                            if d.get("t") == "gift" and str(d.get("p")) == "0":
+                                item = {
+                                    "name": d.get("u_name", "不明"),
+                                    "gift_id": d.get("g_id"),
+                                    "num": d.get("n", 1)
+                                }
+                                current_box.insert(0, item)
+                                if len(current_box) > 50:
+                                    current_box.pop()
                 except Exception as e:
-                    # ここでエラーが出るなら「箱」へのアクセスミスです
                     g = globals().get('FINAL_LOG')
                     if g is not None:
                         g.insert(0, {"name": "⚠️ ERROR", "gift_id": "1", "num": str(e)})
 
             def on_open(ws):
-                # \n を取り除き、最後に \0 (ヌル文字) を付与するのがSHOWROOMプロトコルの正解です
-                auth_cmd = f"SUB\t{key}\0"
+                # 8080番ポートの標準的な認証形式
+                auth_cmd = f"SUB\t{key}\n"
                 ws.send(auth_cmd.encode('utf-8'))
 
-            ws = websocket.WebSocketApp(f"wss://{host}/", on_message=on_message, on_open=on_open)
+            # API指定のホストとポートで接続 (ws://を使用)
+            ws_url = f"ws://{host}:{port}/"
+            ws = websocket.WebSocketApp(ws_url, on_message=on_message, on_open=on_open)
+            
             globals()['FINAL_WS_RUNNING'] = True
             ws.run_forever(
                 ping_interval=20, 
@@ -724,42 +726,38 @@ if st.session_state.is_tracking:
             )
             globals()['FINAL_WS_RUNNING'] = False
 
-        # 3. 実行制御：ここでNoneを破壊する
+        # 3. 実行制御
         target_rid = st.session_state.get("room_id")
 
         if target_rid:
-            # 接続情報がないなら「今この瞬間に」取得を完了させる
+            # 接続情報がないならAPIから取得
             if not st.session_state.get("bcsvr_host") or st.session_state.get("bcsvr_host") == "None":
                 try:
-                    # 他の処理を待たずに直接APIを叩く
                     res = requests.get(f"https://www.showroom-live.com/api/live/live_info?room_id={target_rid}", timeout=5).json()
                     st.session_state.bcsvr_host = res.get("bcsvr_host")
+                    st.session_state.bcsvr_port = res.get("bcsvr_port", 8080) # ポートを保存
                     st.session_state.bcsvr_key = res.get("bcsvr_key")
                 except:
                     pass
 
-            # ホストが判明し、かつ動いていないなら即座にスレッドを立てる
             curr_host = st.session_state.get("bcsvr_host")
+            curr_port = st.session_state.get("bcsvr_port", 8080)
             curr_key = st.session_state.get("bcsvr_key")
 
-            # --- 修正箇所：threading.Thread の呼び出し部分 ---
+            # スレッド起動部分：argsに port を追加
             if curr_host and curr_key and not globals()['FINAL_WS_RUNNING']:
-                # rid, host, key すべてを確実に str() で囲んで渡す
                 t = threading.Thread(
                     target=ws_engine_core, 
-                    args=(str(target_rid), str(curr_host), str(curr_key)), 
+                    args=(str(target_rid), str(curr_host), str(curr_port), str(curr_key)), 
                     daemon=True
                 )
                 t.start()
 
-        # 4. 表示（グローバルメモリから強制吸い上げ）
-        st.session_state.free_gift_log = list(globals().get('FINAL_LOG', []))
-
+        # 4. 表示
         current_logs = globals().get('FINAL_LOG', [])
         st.session_state.free_gift_log = list(current_logs)
 
         st.markdown("### 🌟 無償ギフト")
-        # 状態表示
         is_active = globals()['FINAL_WS_RUNNING']
         status_col = "green" if is_active else "red"
         st.markdown(f"📡 ステータス: <span style='color:{status_col}; font-weight:bold;'>{'✅ 稼働中' if is_active else '❌ 停止'}</span> | ログ: {len(st.session_state.free_gift_log)}件", unsafe_allow_html=True)
@@ -770,7 +768,7 @@ if st.session_state.is_tracking:
                     img_url = f"https://static.showroom-live.com/image/gift/{log['gift_id']}_s.png"
                     st.markdown(f"<div style='margin-bottom:5px;'><img src='{img_url}' width='25'> <b>{log['name']}</b> ×{log['num']}</div>", unsafe_allow_html=True)
             else:
-                st.write(f"信号受信待ち... (接続先: {st.session_state.get('bcsvr_host')})")
+                st.write(f"信号受信待ち... (接続先: {st.session_state.get('bcsvr_host')}:{st.session_state.get('bcsvr_port')})")
 
 
 
