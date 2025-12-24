@@ -682,20 +682,23 @@ if st.session_state.is_tracking:
             def on_message(ws, message):
                 try:
                     data = json.loads(message)
-                    # 👈 この初期化コードを「削除」するか、以下のように変える
-                    log_ptr = globals().get('FINAL_LOG')
-                    if log_ptr is None: return # 万が一確保できてなければ無視
+                    
+                    # 👈 変数(log_ptr)に代入せず、直接 globals() の中身を操作する
+                    if 'FINAL_LOG' not in globals():
+                        globals()['FINAL_LOG'] = []
 
                     for d in data:
-                        # 無償ギフト(p:0)かつギフトタイプ(t:gift)を狙い撃ち
+                        # 無償ギフト(p:0)判定
                         if d.get("t") == "gift" and str(d.get("p")) == "0":
                             item = {
                                 "name": d.get("u_name", "不明"),
                                 "gift_id": d.get("g_id"),
                                 "num": d.get("n", 1)
                             }
-                            # メモリの先頭に追加
+                            # 👈 直接 globals のリストの先頭に追加
                             globals()['FINAL_LOG'].insert(0, item)
+                            
+                            # 50件超えたら古い順に消す
                             if len(globals()['FINAL_LOG']) > 50:
                                 globals()['FINAL_LOG'].pop()
                 except:
