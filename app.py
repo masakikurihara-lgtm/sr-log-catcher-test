@@ -734,7 +734,7 @@ if st.session_state.is_tracking:
                 time.sleep(1.0) # 起動待ち
 
         # 4. 表示（グローバルメモリから強制吸い上げ）
-        st.session_state.free_gift_log = list(globals()['FINAL_LOG_BUFFER'])
+        st.session_state.free_gift_log = list(globals().get('FINAL_LOG', []))
 
         st.markdown("### 🌟 無償ギフト")
         # 状態表示
