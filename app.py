@@ -682,9 +682,9 @@ if st.session_state.is_tracking:
             def on_message(ws, message):
                 try:
                     data = json.loads(message)
-                    # グローバルメモリを確保
-                    if 'FINAL_LOG' not in globals():
-                        globals()['FINAL_LOG'] = []
+                    # 👈 この初期化コードを「削除」するか、以下のように変える
+                    log_ptr = globals().get('FINAL_LOG')
+                    if log_ptr is None: return # 万が一確保できてなければ無視
 
                     for d in data:
                         # 無償ギフト(p:0)かつギフトタイプ(t:gift)を狙い撃ち
