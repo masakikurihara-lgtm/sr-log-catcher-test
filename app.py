@@ -654,77 +654,55 @@ if st.session_state.is_tracking:
         st.session_state.fan_list = fan_list
         st.session_state.total_fan_count = total_fan_count
 
-        # --- 強制デバッグ版「無償ギフト受信機」 ---
+# --- スレッド管理の最適化版 ---
         import websocket
         import json
         import threading
         import time
 
-        # 1. デバッグ用変数の初期化
         if "ws_debug_msg" not in st.session_state:
             st.session_state.ws_debug_msg = "初期状態"
 
-        # 画面にデバッグ情報を表示
         st.write(f"📡 デバッグ情報: {st.session_state.ws_debug_msg}")
 
+        # --- 受信処理の中身 ---
         def on_message(ws, message):
             try:
                 msg_list = json.loads(message)
-                updated = False
                 for raw_msg in msg_list:
-                    # ギフト判定
                     if raw_msg.get("t") == "gift" and raw_msg.get("p", 0) == 0:
                         new_gift = {"name": raw_msg.get("u_name"), "gift_id": raw_msg.get("g_id"), "num": raw_msg.get("n")}
                         if new_gift not in st.session_state.free_gift_log[:10]:
                             st.session_state.free_gift_log.insert(0, new_gift)
-                            updated = True
-                if updated:
-                    st.rerun()
-            except Exception as e:
-                st.session_state.ws_debug_msg = f"受信エラー: {str(e)}"
-
-        def on_error(ws, error):
-            st.session_state.ws_debug_msg = f"❌ 接続エラー: {str(error)}"
+            except:
+                pass
 
         def on_open(ws):
-            st.session_state.ws_debug_msg = "✅ サーバー接続完了。認証中..."
             key = st.session_state.get("bcsvr_key")
             ws.send(f"SUB\t{key}")
-            st.session_state.ws_debug_msg = "🚀 受信待機中（認証済み）"
 
-        # 2. スレッドの起動管理
-        # ws_connectedがTrueでも、スレッドが生きていなければ再起動を試みる
-        if "ws_connected" not in st.session_state:
-            st.session_state.ws_connected = False
+        # --- 接続ループ用関数 ---
+        def run_ws_loop(host):
+            ws_url = f"wss://{host}/"
+            ws = websocket.WebSocketApp(ws_url, on_message=on_message, on_open=on_open)
+            ws.run_forever()
 
-        if not st.session_state.ws_connected:
-            def run_ws():
-                try:
-                    host = st.session_state.get("bcsvr_host")
-                    key = st.session_state.get("bcsvr_key")
-                    if not host or not key:
-                        st.session_state.ws_debug_msg = "⚠️ ホスト名または鍵がありません"
-                        return
-
-                    ws_url = f"wss://{host}/"
-                    ws = websocket.WebSocketApp(
-                        ws_url,
-                        on_message=on_message,
-                        on_error=on_error,
-                        on_open=on_open
-                    )
-                    st.session_state.ws_debug_msg = f"URLへ接続試行中: {ws_url}"
-                    ws.run_forever()
-                except Exception as e:
-                    st.session_state.ws_debug_msg = f"❌ スレッド内エラー: {str(e)}"
-
-            # スレッド開始
-            st.session_state.ws_debug_msg = "スレッド起動を試みています..."
-            thread = threading.Thread(target=run_ws, daemon=True)
-            thread.start()
-            st.session_state.ws_connected = True
-            time.sleep(0.5) # 起動を待つ
-            st.rerun() # 状態を画面に反映
+        # --- スレッドの重複起動を防止して開始 ---
+        # "ws_thread"そのものをセッションで管理します
+        if "ws_active" not in st.session_state or not st.session_state.ws_active:
+            host = st.session_state.get("bcsvr_host")
+            if host:
+                # スレッドを作成して即開始
+                t = threading.Thread(target=run_ws_loop, args=(host,), daemon=True)
+                t.start()
+                
+                st.session_state.ws_active = True
+                st.session_state.ws_debug_msg = "✅ 受信機が動き出しました"
+                time.sleep(0.2)
+                st.rerun()
+            else:
+                st.session_state.ws_debug_msg = "⚠️ 接続先(host)が未設定です"
+        # ----------------------------
 
 
         st.markdown("---")
