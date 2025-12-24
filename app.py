@@ -665,34 +665,23 @@ if st.session_state.is_tracking:
         st.session_state.total_fan_count = total_fan_count
 
 
-        # --- 1. スレッド間で共有する「箱」を、アプリ起動時に1度だけ作成 ---
+        # --- 1. グローバルバッファ（メモリ上に直接配置） ---
         import websocket
         import json
         import threading
         import requests
 
-        # global変数を使ってStreamlitの制限を回避
-        if 'shared_free_gift_log' not in globals():
-            globals()['shared_free_gift_log'] = []
+        if 'raw_debug_log' not in globals():
+            globals()['raw_debug_log'] = []
 
-        # --- 2. 受信機本体の定義 ---
+        # --- 2. 受信機：判定をなくして全部入れる ---
         def start_showroom_ws(host, key):
             def on_message(ws, message):
                 try:
-                    data_list = json.loads(message)
-                    for d in data_list:
-                        # 無償ギフト(p:0)かつタイプがギフト(t:gift)
-                        if d.get("t") == "gift" and str(d.get("p")) == "0":
-                            new_item = {
-                                "name": d.get("u_name", "不明"),
-                                "gift_id": d.get("g_id"),
-                                "num": d.get("n", 1)
-                            }
-                            # グローバルなリストに直接追加
-                            log_ref = globals()['shared_free_gift_log']
-                            if not log_ref or log_ref[0] != new_item:
-                                log_ref.insert(0, new_item)
-                                if len(log_ref) > 20: log_ref.pop()
+                    # 届いた文字列をそのままグローバルリストに入れる
+                    log_ref = globals()['raw_debug_log']
+                    log_ref.insert(0, message) # 生のメッセージを保存
+                    if len(log_ref) > 10: log_ref.pop()
                 except:
                     pass
 
@@ -702,32 +691,30 @@ if st.session_state.is_tracking:
             ws = websocket.WebSocketApp(f"wss://{host}/", on_message=on_message, on_open=on_open)
             ws.run_forever()
 
-        # --- 3. 接続と同期の制御 ---
+        # --- 3. 接続制御 ---
         rid = st.session_state.get("room_id")
         if rid and not st.session_state.get("bcsvr_host"):
             try:
-                res = requests.get(f"https://www.showroom-live.com/api/live/live_info?room_id={rid}", headers=HEADERS, timeout=5).json()
+                res = requests.get(f"https://www.showroom-live.com/api/live/live_info?room_id={rid}", headers=HEADERS).json()
                 st.session_state.bcsvr_host = res.get("bcsvr_host")
                 st.session_state.bcsvr_key = res.get("bcsvr_key")
-            except:
-                pass
+            except: pass
 
-        # 接続開始
         if st.session_state.get("bcsvr_host") and not st.session_state.get("ws_active", False):
-            t = threading.Thread(
-                target=start_showroom_ws, 
-                args=(st.session_state.bcsvr_host, st.session_state.bcsvr_key), 
-                daemon=True
-            )
+            t = threading.Thread(target=start_showroom_ws, args=(st.session_state.bcsvr_host, st.session_state.bcsvr_key), daemon=True)
             t.start()
             st.session_state.ws_active = True
 
-        # 重要：グローバルのリストを、今の表示用セッションに強制コピー
-        st.session_state.free_gift_log = list(globals()['shared_free_gift_log'])
+        # --- 4. 生データの強制表示 ---
+        raw_data = globals()['raw_debug_log']
+        st.info(f"📡 受信パケット（最新{len(raw_data)}件）")
+        if raw_data:
+            for i, msg in enumerate(raw_data):
+                st.code(msg[:200], language="json") # 届いた中身をそのまま画面に出す
+        else:
+            st.warning("信号がまだ1通も届いていません。星投げを待機中...")
 
-        # 📡 接続状態の表示
-        st.caption(f"📡 受信機: ✅ 稼働中 (累計ログ: {len(st.session_state.free_gift_log)}件)")
-        st.markdown("---")
+        st.caption(f"Status: {'Active' if st.session_state.ws_active else 'Inactive'}")
 
 
 
