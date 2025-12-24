@@ -681,6 +681,7 @@ if st.session_state.is_tracking:
             globals()['LAST_GIFT_IDS'] = set()
 
         # --- 修正版：APIポーリング・エンジン ---
+# --- 最終修正：判定ロジックの改善版 ---
         def gift_polling_core(rid):
             log_ptr = globals().get('FINAL_LOG')
             last_ids = globals().get('LAST_GIFT_IDS')
@@ -690,18 +691,22 @@ if st.session_state.is_tracking:
             
             while globals().get('FINAL_WS_RUNNING'):
                 try:
-                    # ギフトログAPIを叩く（WebSocketの代わりにここからデータを取る）
-                    res = requests.get(f"https://www.showroom-live.com/api/live/gift_log?room_id={rid}", timeout=5).json()
+                    # タイムスタンプを付与してキャッシュを回避
+                    url = f"https://www.showroom-live.com/api/live/gift_log?room_id={rid}&_={int(time.time())}"
+                    res = requests.get(url, timeout=5).json()
                     
                     if "gift_log" in res:
-                        # 新しい順に並んでいるので逆順にして処理
+                        # 取得したログをすべてループ
                         for d in reversed(res["gift_log"]):
-                            # 無償ギフト（星・種）またはポイント0のものを抽出
-                            is_free = d.get("is_free") == True or d.get("point") == 0
+                            # 判定1: 有償ギフト(point > 1) 以外をすべて「無償」として扱う
+                            # 判定2: gift_type が無償(1) である
+                            point = d.get("point", 0)
+                            g_type = d.get("gift_type", 0)
                             
-                            if is_free:
-                                # 重複表示を防ぐためのユニークキー（ユーザーID + 時間 + ギフトID）
-                                event_id = f"{d.get('u_id')}_{d.get('created_at')}_{d.get('g_id')}"
+                            # ポイントが0、またはギフトタイプが1（無償）なら採用
+                            if point == 0 or g_type == 1:
+                                # ユニークID生成（重複排除用）
+                                event_id = f"{d.get('u_id')}_{d.get('created_at')}_{d.get('g_id')}_{d.get('num')}"
                                 
                                 if event_id not in last_ids:
                                     item = {
@@ -712,17 +717,22 @@ if st.session_state.is_tracking:
                                     log_ptr.insert(0, item)
                                     last_ids.add(event_id)
                                     
-                                    # ログが溜まりすぎないよう制限
                                     if len(log_ptr) > 50:
                                         log_ptr.pop()
                                         
-                        # 記憶するIDが増えすぎないよう整理
-                        if len(last_ids) > 200:
-                            last_ids.clear()
-                except Exception as e:
+                    if len(last_ids) > 500:
+                        last_ids.clear()
+                except:
                     pass
                 
-                time.sleep(4) # 4秒ごとに新着を確認
+                # 監視間隔を少し短くして追従性を上げます
+                time.sleep(2)
+
+        # --- 実行制御部分は変更なし ---
+        target_rid = st.session_state.get("room_id")
+        if target_rid and not globals().get('FINAL_WS_RUNNING'):
+            t = threading.Thread(target=gift_polling_core, args=(str(target_rid),), daemon=True)
+            t.start()
 
         # 3. 実行制御
         target_rid = st.session_state.get("room_id")
