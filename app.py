@@ -703,12 +703,9 @@ if st.session_state.is_tracking:
                     log_ptr.insert(0, {"name": "⚠️ ERROR", "gift_id": "1", "num": str(e)})
 
             def on_open(ws):
-                time.sleep(3)
-                # 👈 ここを「本質的」に書き換えます
-                # 文字列結合ではなく、サーバーが待っている「SUB」「タブ」「キー」「改行」を
-                # 直接バイナリとして正確に叩き込みます。
-                auth_str = f"SUB\t{key}\n"
-                ws.send(auth_str.encode('utf-8')) # 確実に UTF-8 バイナリで送信
+                # 👈 time.sleep(3) を削除します。接続した瞬間に鍵を送るのが本質です。
+                # 確実に「SUB」「タブ」「キー」「改行」をバイナリで即座に叩き込みます。
+                ws.send(f"SUB\t{key}\n".encode('utf-8'))
 
             ws = websocket.WebSocketApp(f"wss://{host}/", on_message=on_message, on_open=on_open)
             globals()['FINAL_WS_RUNNING'] = True
