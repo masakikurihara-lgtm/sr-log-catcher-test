@@ -682,25 +682,25 @@ if st.session_state.is_tracking:
             def on_message(ws, message):
                 try:
                     data = json.loads(message)
-                    
-                    # 👈 変数(log_ptr)に代入せず、直接 globals() の中身を操作する
+                    # 👈 log_ptr ではなく直接 globals を叩く（あなたの今の構造を維持）
                     if 'FINAL_LOG' not in globals():
                         globals()['FINAL_LOG'] = []
 
                     for d in data:
-                        # 無償ギフト(p:0)判定
                         if d.get("t") == "gift" and str(d.get("p")) == "0":
                             item = {
                                 "name": d.get("u_name", "不明"),
                                 "gift_id": d.get("g_id"),
                                 "num": d.get("n", 1)
                             }
-                            # 👈 直接 globals のリストの先頭に追加
                             globals()['FINAL_LOG'].insert(0, item)
-                            
-                            # 50件超えたら古い順に消す
                             if len(globals()['FINAL_LOG']) > 50:
                                 globals()['FINAL_LOG'].pop()
+                            
+                            # 👈 【重要】ここに追加。
+                            # globals に入れただけでは Streamlit は「画面を更新しろ」と気づけません。
+                            # セッション側に「何でもいいから書き込む」ことで、強制的に同期させます。
+                            st.session_state["FORCE_SYNC"] = time.time()
                 except:
                     pass
 
