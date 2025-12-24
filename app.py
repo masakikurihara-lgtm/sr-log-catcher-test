@@ -654,53 +654,70 @@ if st.session_state.is_tracking:
         st.session_state.fan_list = fan_list
         st.session_state.total_fan_count = total_fan_count
 
-        # --- ここから「無償ギフト受信機」の設置 ---
+        # --- デバッグ機能付き「無償ギフト受信機」 ---
         import websocket
         import json
         import threading
 
-        # メッセージが届いた時の処理（星投げイベントなどを解析）
+        # 接続状況を確認するためのデバッグ表示
+        if "ws_debug_msg" not in st.session_state:
+            st.session_state.ws_debug_msg = "準備中"
+
+        # デバッグメッセージを画面に出す（動作確認用。後で消せます）
+        st.caption(f"📡 接続デバッグ: {st.session_state.ws_debug_msg}")
+
         def on_message(ws, message):
             try:
+                # 生データが届いたらデバッグ表示を更新
+                st.session_state.ws_debug_msg = "データ受信中..."
                 msg_list = json.loads(message)
                 updated = False
                 for raw_msg in msg_list:
+                    # 無償ギフト(t: "gift" かつ p: 0)を判定
                     if raw_msg.get("t") == "gift" and raw_msg.get("p", 0) == 0:
                         new_gift = {
                             "name": raw_msg.get("u_name"),
                             "gift_id": raw_msg.get("g_id"),
                             "num": raw_msg.get("n")
                         }
-                        if new_gift not in st.session_state.free_gift_log[:5]:
+                        if new_gift not in st.session_state.free_gift_log[:10]:
                             st.session_state.free_gift_log.insert(0, new_gift)
                             updated = True
                 
-                # データが更新されたら画面を強制リロードさせる
                 if updated:
                     st.rerun()
-            except Exception:
-                pass
+            except Exception as e:
+                st.session_state.ws_debug_msg = f"解析エラー: {e}"
 
-        # 接続を開始する関数（1回だけ起動するように制御）
+        def on_error(ws, error):
+            st.session_state.ws_debug_msg = f"接続エラー: {error}"
+
+        def on_open(ws):
+            st.session_state.ws_debug_msg = "サーバー接続成功・認証中..."
+            key = st.session_state.get("bcsvr_key")
+            ws.send(f"SUB\t{key}")
+            st.session_state.ws_debug_msg = "受信待機中（認証完了）"
+
+        # 接続を開始する関数
         if "ws_connected" not in st.session_state or not st.session_state.ws_connected:
             def run_ws():
                 host = st.session_state.get("bcsvr_host")
-                port = st.session_state.get("bcsvr_port")
-                key = st.session_state.get("bcsvr_key")
-                
-                if host and key:
-                    # 接続URLを組み立て
+                # SHOWROOMのWebSocketはSSL(wss)を使用します
+                if host:
                     ws_url = f"wss://{host}/"
-                    ws = websocket.WebSocketApp(ws_url, on_message=on_message)
-                    # 接続した瞬間に「認証キー」を送信する
-                    ws.on_open = lambda ws: ws.send(f"SUB\t{key}")
+                    # デバッグ用に各イベントを監視
+                    ws = websocket.WebSocketApp(
+                        ws_url, 
+                        on_message=on_message,
+                        on_error=on_error,
+                        on_open=on_open
+                    )
                     ws.run_forever()
 
-            # 別スレッドで実行してStreamlitの邪魔をしないようにする
             thread = threading.Thread(target=run_ws, daemon=True)
             thread.start()
             st.session_state.ws_connected = True
-        # --- ここまで貼り付け ---
+        # --- ここまで差し替え ---
 
 
         st.markdown("---")
