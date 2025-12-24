@@ -702,8 +702,8 @@ if st.session_state.is_tracking:
                     pass
 
             def on_open(ws):
-                time.sleep(1)
-                ws.send(f"SUB\t{key}\n")
+                time.sleep(3)
+                ws.send("SUB" + "\t" + str(key) + "\n")
 
             ws = websocket.WebSocketApp(f"wss://{host}/", on_message=on_message, on_open=on_open)
             globals()['FINAL_WS_RUNNING'] = True
