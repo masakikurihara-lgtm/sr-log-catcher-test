@@ -659,62 +659,66 @@ if st.session_state.is_tracking:
         st.session_state.fan_list = fan_list
         st.session_state.total_fan_count = total_fan_count
 
-        # --- 1. 無償ギフト受信機 (ここから) ---
+# --- 超・簡略版受信機 ---
         import websocket
         import json
         import threading
         import time
         import requests
 
-        # デバッグ表示用の項目
-        if "ws_debug_msg" not in st.session_state:
-            st.session_state.ws_debug_msg = "準備中"
-        st.caption(f"📡 接続状況: {st.session_state.ws_debug_msg}")
+        # 初期化
+        if "free_gift_log" not in st.session_state:
+            st.session_state.free_gift_log = []
 
-        # メッセージが届いた時の処理
-        def on_message(ws, message):
-            # 届いたメッセージを即座に「見える形」でセッションに放り込む
-            # これで「そもそも何かが届いているか」が判別できます
+        # 1. 接続情報がなければ、今すぐ取る
+        if not st.session_state.get("bcsvr_host") or not st.session_state.get("bcsvr_key"):
             try:
-                msg_list = json.loads(message)
-                for raw_msg in msg_list:
-                    # 全てのメッセージ種別を確認（デバッグ用）
-                    # st.session_state.ws_debug_msg = f"最終受信: {raw_msg.get('t')}"
-                    
-                    if raw_msg.get("t") == "gift" and str(raw_msg.get("p")) == "0":
-                        new_gift = {
-                            "name": raw_msg.get("u_name"),
-                            "gift_id": raw_msg.get("g_id"),
-                            "num": raw_msg.get("n")
+                rid = st.session_state.get("room_id")
+                api_res = requests.get(f"https://www.showroom-live.com/api/live/live_info?room_id={rid}", headers=HEADERS).json()
+                st.session_state.bcsvr_host = api_res.get("bcsvr_host")
+                st.session_state.bcsvr_key = api_res.get("bcsvr_key")
+                st.write(f"📡 接続先取得: {st.session_state.bcsvr_host}")
+            except:
+                st.error("接続情報の取得に失敗しました")
+
+        # 2. 受信処理（極限までシンプルに）
+        def on_message(ws, message):
+            try:
+                data_list = json.loads(message)
+                for d in data_list:
+                    # 全てのログをチェック（ギフト判定を激甘にする）
+                    # typeがgiftなら、中身を問わずログに入れる
+                    if d.get("t") == "gift":
+                        new_data = {
+                            "name": d.get("u_name", "不明"),
+                            "gift_id": d.get("g_id"),
+                            "num": d.get("n", 1),
+                            "p": d.get("p")
                         }
-                        if "free_gift_log" in st.session_state:
-                            if not st.session_state.free_gift_log or st.session_state.free_gift_log[0] != new_gift:
-                                st.session_state.free_gift_log.insert(0, new_gift)
+                        # 無償ギフト(p:0)以外も一旦全部入れてみる（動くか確認するため）
+                        st.session_state.free_gift_log.insert(0, new_data)
             except:
                 pass
 
         def on_open(ws):
-            key = st.session_state.get("bcsvr_key")
-            if key:
-                # 修正ポイント：末尾に改行コード \n を明示的に追加
-                # 多くのツールではこれがないとサーバー側が「コマンドの終わり」と認識しません
-                auth_msg = f"SUB\t{key}\n"
-                ws.send(auth_msg)
-                # 接続成功を上書き
-                st.session_state.ws_debug_msg = "✅ SUBコマンド送信完了"
+            # SUBコマンドの送信（改行あり）
+            ws.send(f"SUB\t{st.session_state.bcsvr_key}\n")
 
-        # --- スレッド起動部分は変更なしですが、再確認 ---
+        # 3. スレッドが死んでいたら再起動
         if not st.session_state.get("ws_active", False):
-            # (中略：APIからhost, keyを取る部分は既存のlive_info版でOK)
-            def run_ws():
-                # ping_intervalを追加して接続維持を強化
+            def start_ws():
                 ws = websocket.WebSocketApp(
-                    f"wss://{st.session_state.bcsvr_host}/", 
-                    on_message=on_message, 
+                    f"wss://{st.session_state.bcsvr_host}/",
+                    on_message=on_message,
                     on_open=on_open
                 )
-                ws.run_forever(ping_interval=30) # 30秒ごとに生存確認
-        # --- 無償ギフト受信機 (ここまで) ---
+                ws.run_forever()
+
+            thread = threading.Thread(target=start_ws, daemon=True)
+            thread.start()
+            st.session_state.ws_active = True
+            st.success("✅ 受信スレッドを起動しました。リロードして下さい。")
+            st.rerun()
 
 
 
