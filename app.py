@@ -731,7 +731,7 @@ if st.session_state.is_tracking:
         st.markdown(f"**最終更新日時 (日本時間): {datetime.datetime.now(JST).strftime('%Y-%m-%d %H:%M:%S')}**")
         st.markdown(f"<p style='font-size:12px; color:#a1a1a1;'>※約10秒ごとに自動更新されます。</p>", unsafe_allow_html=True)
 
-        col_comment, col_gift, col_fan = st.columns(4)
+        col_comment, col_gift, col_gift, col_fan = st.columns(4)
         with col_comment:
             st.markdown("### 📝 コメント")
             with st.container(border=True, height=500):
