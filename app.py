@@ -12,6 +12,11 @@ import os
 import websocket
 
 
+# スレッド間でデータを共有するための「外枠」を定義
+if 'global_free_gift_buffer' not in globals():
+    global_free_gift_buffer = []
+
+
 def upload_csv_to_ftp(filename: str, csv_buffer: io.BytesIO):
     """Secretsに登録されたFTP設定を使ってCSVをアップロード"""
     ftp_info = st.secrets["ftp"]
@@ -659,32 +664,18 @@ if st.session_state.is_tracking:
         st.session_state.fan_list = fan_list
         st.session_state.total_fan_count = total_fan_count
 
-# --- 受信機：シンプル・確実版 ---
+
+# --- 受信機：グローバルバッファ版 ---
         import websocket
         import json
         import threading
-        import requests
 
-        # 初期化：ログ用の箱を準備
-        if "free_gift_log" not in st.session_state:
-            st.session_state.free_gift_log = []
-
-        # 接続情報を確実に取得
-        if not st.session_state.get("bcsvr_host"):
-            try:
-                rid = st.session_state.get("room_id")
-                api_res = requests.get(f"https://www.showroom-live.com/api/live/live_info?room_id={rid}", headers=HEADERS).json()
-                st.session_state.bcsvr_host = api_res.get("bcsvr_host")
-                st.session_state.bcsvr_key = api_res.get("bcsvr_key")
-            except:
-                pass
-
-        # メッセージ受信時の処理（ここがデータの入り口）
+        # メッセージ受信
         def on_message(ws, message):
             try:
                 data_list = json.loads(message)
                 for d in data_list:
-                    # 無償ギフト(p:0)またはギフト(t:gift)を検知
+                    # 無償ギフト(p:0)または全てのギフト(t:gift)を検知
                     if d.get("t") == "gift":
                         new_data = {
                             "name": d.get("u_name", "不明"),
@@ -692,9 +683,11 @@ if st.session_state.is_tracking:
                             "num": d.get("n", 1),
                             "p": d.get("p")
                         }
-                        # セッション状態に直接追加（※ここがポイント）
-                        st.session_state.free_gift_log.insert(0, new_data)
-                        st.session_state.free_gift_log = st.session_state.free_gift_log[:20]
+                        # 直接グローバル変数にねじ込む
+                        global_free_gift_buffer.insert(0, new_data)
+                        # 最大30件保持
+                        if len(global_free_gift_buffer) > 30:
+                            global_free_gift_buffer.pop()
             except:
                 pass
 
@@ -703,7 +696,7 @@ if st.session_state.is_tracking:
             if key:
                 ws.send(f"SUB\t{key}\n")
 
-        # 接続がなければ開始
+        # 接続開始（一度だけ実行）
         if not st.session_state.get("ws_active", False):
             def run():
                 ws = websocket.WebSocketApp(
@@ -716,9 +709,6 @@ if st.session_state.is_tracking:
             t = threading.Thread(target=run, daemon=True)
             t.start()
             st.session_state.ws_active = True
-            st.rerun()
-
-        st.caption(f"📡 接続先: {st.session_state.get('bcsvr_host')} (ログ数: {len(st.session_state.free_gift_log)})")
 
 
 
@@ -804,29 +794,29 @@ if st.session_state.is_tracking:
                     st.info("ギフトがありません。")
         with col_free_gift:
             st.markdown("### 🌟 無償ギフト")
-            # プレースホルダー（空の容器）を作成
-            free_gift_placeholder = st.empty()
             
-            # プレースホルダーの中に内容を書き込む
-            with free_gift_placeholder.container():
-                with st.container(border=True, height=500):
-                    if st.session_state.get('free_gift_log'):
-                        for log in st.session_state.free_gift_log:
-                            user_name = log.get('name', '匿名')
-                            gift_id = log.get('gift_id')
-                            gift_count = log.get('num', 0)
-                            img_url = f"https://static.showroom-live.com/image/gift/{gift_id}_s.png"
-                            
-                            html = f"""
-                            <div style="display:flex; align-items:center; margin-bottom:5px;">
-                                <img src="{img_url}" width="20" style="margin-right:5px;">
-                                <span style="font-size:0.8em;">{user_name} ×{gift_count}</span>
-                            </div>
-                            <hr style="border:none; border-top:1px solid #eee; margin:5px 0;">
-                            """
-                            st.markdown(html, unsafe_allow_html=True)
-                    else:
-                        st.info("待機中...")
+            # グローバルバッファから最新データを取り込む
+            if 'global_free_gift_buffer' in globals():
+                st.session_state.free_gift_log = list(global_free_gift_buffer)
+
+            with st.container(border=True, height=500):
+                logs = st.session_state.get("free_gift_log", [])
+                if logs:
+                    for log in logs:
+                        user_name = log.get('name', '匿名')
+                        gift_id = log.get('gift_id')
+                        gift_count = log.get('num', 0)
+                        img_url = f"https://static.showroom-live.com/image/gift/{gift_id}_s.png"
+                        
+                        st.markdown(f"""
+                        <div style="display:flex; align-items:center; margin-bottom:5px;">
+                            <img src="{img_url}" width="20" style="margin-right:5px;">
+                            <span style="font-size:0.8em;">{user_name} ×{gift_count}</span>
+                        </div>
+                        <hr style="border:none; border-top:1px solid #eee; margin:5px 0;">
+                        """, unsafe_allow_html=True)
+                else:
+                    st.info("待機中... (自動更新をお待ちください)")
         with col_fan:
             st.markdown("### 🏆 ファンリスト")
             with st.container(border=True, height=500):
