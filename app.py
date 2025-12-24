@@ -826,31 +826,42 @@ if st.session_state.is_tracking:
                         st.markdown(html, unsafe_allow_html=True)
                 else:
                     st.info("ギフトがありません。")
+# --- 表示セクション：無償ギフト枠の完全上書き ---
         with col_free_gift:
             st.markdown("### 🌟 無償ギフト")
             
-            # グローバルバッファから最新データを取り込む
-            if 'global_free_gift_buffer' in globals():
-                st.session_state.free_gift_log = list(global_free_gift_buffer)
+            # 1. 裏側のメモリから最新ログを吸い上げる
+            current_logs = list(globals().get('FINAL_LOG_BUFFER', []))
+            
+            # 2. ステータス表示（邪魔なら消してもOKですが、生存確認用です）
+            is_active = globals().get('FINAL_WS_RUNNING', False)
+            st.caption(f"📡 {'✅ 接続中' if is_active else '❌ 停止'} | ログ: {len(current_logs)}件")
 
+            # 3. 青い「待機中」を消して、ログがあれば表示する
             with st.container(border=True, height=500):
-                logs = st.session_state.get("free_gift_log", [])
-                if logs:
-                    for log in logs:
-                        user_name = log.get('name', '匿名')
+                if current_logs:
+                    # ログがある場合は、スクショの「待機中」を消してリストを表示
+                    for log in current_logs:
                         gift_id = log.get('gift_id')
-                        gift_count = log.get('num', 0)
+                        user_name = log.get('name', '不明')
+                        num = log.get('num', 1)
                         img_url = f"https://static.showroom-live.com/image/gift/{gift_id}_s.png"
                         
                         st.markdown(f"""
-                        <div style="display:flex; align-items:center; margin-bottom:5px;">
-                            <img src="{img_url}" width="20" style="margin-right:5px;">
-                            <span style="font-size:0.8em;">{user_name} ×{gift_count}</span>
+                        <div style="display:flex; align-items:center; margin-bottom:8px; padding-bottom:5px; border-bottom:1px solid #f0f2f6;">
+                            <img src="{img_url}" width="24" style="margin-right:10px;">
+                            <div style="line-height:1.2;">
+                                <div style="font-size:0.85em; font-weight:bold;">{user_name}</div>
+                                <div style="font-size:0.75em; color:gray;">×{num}</div>
+                            </div>
                         </div>
-                        <hr style="border:none; border-top:1px solid #eee; margin:5px 0;">
                         """, unsafe_allow_html=True)
                 else:
+                    # ログが0件の時だけ、スクショにある青い「待機中」を出す
                     st.info("待機中... (自動更新をお待ちください)")
+
+        # --- ログを確実に溜めるための「受信機」側への1行追加（念のため） ---
+        # 受信機側の on_message 内で st.session_state ではなく globals() を使っているか再確認してください
         with col_fan:
             st.markdown("### 🏆 ファンリスト")
             with st.container(border=True, height=500):
