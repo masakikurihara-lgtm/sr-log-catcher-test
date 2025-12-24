@@ -665,17 +665,27 @@ if st.session_state.is_tracking:
         st.session_state.total_fan_count = total_fan_count
 
 
-# --- 受信機：グローバルバッファ版 ---
+# --- 受信機：生存確認デバッグ版 ---
         import websocket
         import json
         import threading
+        import time
 
-        # メッセージ受信
+        # 1. 状態表示用のプレースホルダー（画面の一番目立つ場所に出ます）
+        ws_status_box = st.empty()
+
+        # 2. 受信したデータを溜める「箱」を確実に用意
+        if "free_gift_log" not in st.session_state:
+            st.session_state.free_gift_log = []
+        if "ws_counter" not in st.session_state:
+            st.session_state.ws_counter = 0
+
         def on_message(ws, message):
+            st.session_state.ws_counter += 1 # 何か届くたびにカウントアップ
             try:
                 data_list = json.loads(message)
                 for d in data_list:
-                    # 無償ギフト(p:0)または全てのギフト(t:gift)を検知
+                    # 全てのギフトを検知
                     if d.get("t") == "gift":
                         new_data = {
                             "name": d.get("u_name", "不明"),
@@ -683,32 +693,50 @@ if st.session_state.is_tracking:
                             "num": d.get("n", 1),
                             "p": d.get("p")
                         }
-                        # 直接グローバル変数にねじ込む
-                        global_free_gift_buffer.insert(0, new_data)
-                        # 最大30件保持
-                        if len(global_free_gift_buffer) > 30:
-                            global_free_gift_buffer.pop()
+                        # セッションに直接ねじ込む
+                        st.session_state.free_gift_log.insert(0, new_data)
+                        st.session_state.free_gift_log = st.session_state.free_gift_log[:20]
             except:
                 pass
 
         def on_open(ws):
             key = st.session_state.get("bcsvr_key")
             if key:
+                # サーバーに「データを送ってくれ」と頼む
                 ws.send(f"SUB\t{key}\n")
 
-        # 接続開始（一度だけ実行）
+        # 3. 接続管理（ここが重要）
+        # すでに接続済みなら何もしない、切れていたら再接続
         if not st.session_state.get("ws_active", False):
-            def run():
-                ws = websocket.WebSocketApp(
-                    f"wss://{st.session_state.bcsvr_host}/",
-                    on_message=on_message,
-                    on_open=on_open
-                )
-                ws.run_forever()
-            
-            t = threading.Thread(target=run, daemon=True)
-            t.start()
-            st.session_state.ws_active = True
+            host = st.session_state.get("bcsvr_host")
+            if host:
+                def run():
+                    try:
+                        ws = websocket.WebSocketApp(
+                            f"wss://{host}/",
+                            on_message=on_message,
+                            on_open=on_open
+                        )
+                        ws.run_forever()
+                    except:
+                        pass
+                    finally:
+                        st.session_state.ws_active = False
+
+                t = threading.Thread(target=run, daemon=True)
+                t.start()
+                st.session_state.ws_active = True
+                st.rerun()
+
+        # --- 4. 画面に現在の通信状態を強制表示 ---
+        status_color = "green" if st.session_state.ws_active else "red"
+        ws_status_box.markdown(f"""
+            <div style="background-color: #f0f2f6; padding: 10px; border-radius: 5px; border-left: 5px solid {status_color};">
+                <strong>📡 通信ステータス:</strong> {'接続中 (Active)' if st.session_state.ws_active else '切断 (Inactive)'}<br>
+                <strong>📥 受信パケット数:</strong> {st.session_state.ws_counter}<br>
+                <strong>🔑 キー:</strong> {st.session_state.get('bcsvr_key')[:10]}...
+            </div>
+        """, unsafe_allow_html=True)
 
 
 
