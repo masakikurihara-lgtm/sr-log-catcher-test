@@ -16,6 +16,44 @@ import queue
 
 
 
+def debug_showroom_ws(room_id: str):
+    """
+    SHOWROOM WebSocket 検証用
+    受信した生データをすべて print する
+    """
+    def run():
+        ws_url = "wss://prxy.showroom-live.com:443"
+
+        def on_open(ws):
+            print("=== WS OPEN ===")
+            ws.send(f"SUB {room_id}")
+            print("=== SUB SENT:", room_id, "===")
+
+        def on_message(ws, message):
+            print("=== WS RAW MESSAGE ===")
+            print(message)
+
+        def on_error(ws, error):
+            print("=== WS ERROR ===")
+            print(error)
+
+        def on_close(ws):
+            print("=== WS CLOSE ===")
+
+        ws = websocket.WebSocketApp(
+            ws_url,
+            on_open=on_open,
+            on_message=on_message,
+            on_error=on_error,
+            on_close=on_close,
+        )
+        ws.run_forever()
+
+    threading.Thread(target=run, daemon=True).start()
+
+
+
+
 def upload_csv_to_ftp(filename: str, csv_buffer: io.BytesIO):
     """Secretsに登録されたFTP設定を使ってCSVをアップロード"""
     ftp_info = st.secrets["ftp"]
@@ -545,18 +583,24 @@ if st.button("トラッキング開始", key="start_button"):
         if not st.session_state.get("is_master_access", False) and input_room_id not in valid_ids:
             st.error("指定されたルームIDが見つからないか、認証されていないルームIDか、現在配信中ではありません。")
         else:
-            st.session_state.is_tracking = True
-            start_free_gift_ws(st.session_state.room_id)
-
+            # ① 先に room_id を確定
             st.session_state.room_id = input_room_id
+
+            # ② 状態初期化
+            st.session_state.is_tracking = True
             st.session_state.comment_log = []
             st.session_state.gift_log = []
             st.session_state.gift_list_map = {}
             st.session_state.fan_list = []
             st.session_state.total_fan_count = 0
+
+            # ③ 最後に WebSocket 開始（← ここが重要）
+            start_free_gift_ws(st.session_state.room_id)
+
             st.rerun()
     else:
         st.error("ルームIDを入力してください。")
+
 
 if st.button("トラッキング停止", key="stop_button", disabled=not st.session_state.is_tracking):
     if st.session_state.is_tracking:
