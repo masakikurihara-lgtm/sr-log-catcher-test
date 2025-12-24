@@ -672,96 +672,94 @@ if st.session_state.is_tracking:
         import requests
         import streamlit as st
 
-        # 1. メモリの絶対確保
+        # 1. メモリと接続状態の完全管理
         if 'FINAL_LOG' not in globals():
             globals()['FINAL_LOG'] = []
         if 'FINAL_WS_RUNNING' not in globals():
             globals()['FINAL_WS_RUNNING'] = False
-        if 'LAST_GIFT_IDS' not in globals():
-            globals()['LAST_GIFT_IDS'] = set()
+        if 'WS_INSTANCE' not in globals():
+            globals()['WS_INSTANCE'] = None
 
-        # --- 修正版：APIポーリング・エンジン ---
-# --- 最終修正：判定ロジックの改善版 ---
-        def gift_polling_core(rid):
-            log_ptr = globals().get('FINAL_LOG')
-            last_ids = globals().get('LAST_GIFT_IDS')
-            if log_ptr is None: return
-
-            globals()['FINAL_WS_RUNNING'] = True
-            
-            while globals().get('FINAL_WS_RUNNING'):
+        def ws_engine_core(rid, host, port, key):
+            def on_message(ws, message):
                 try:
-                    # タイムスタンプを付与してキャッシュを回避
-                    url = f"https://www.showroom-live.com/api/live/gift_log?room_id={rid}&_={int(time.time())}"
-                    res = requests.get(url, timeout=5).json()
-                    
-                    if "gift_log" in res:
-                        # 取得したログをすべてループ
-                        for d in reversed(res["gift_log"]):
-                            # 判定1: 有償ギフト(point > 1) 以外をすべて「無償」として扱う
-                            # 判定2: gift_type が無償(1) である
-                            point = d.get("point", 0)
-                            g_type = d.get("gift_type", 0)
-                            
-                            # ポイントが0、またはギフトタイプが1（無償）なら採用
-                            if point == 0 or g_type == 1:
-                                # ユニークID生成（重複排除用）
-                                event_id = f"{d.get('u_id')}_{d.get('created_at')}_{d.get('g_id')}_{d.get('num')}"
-                                
-                                if event_id not in last_ids:
-                                    item = {
-                                        "name": d.get("u_name", "不明"),
-                                        "gift_id": d.get("g_id"),
-                                        "num": d.get("num", 1)
-                                    }
-                                    log_ptr.insert(0, item)
-                                    last_ids.add(event_id)
-                                    
-                                    if len(log_ptr) > 50:
-                                        log_ptr.pop()
-                                        
-                    if len(last_ids) > 500:
-                        last_ids.clear()
+                    # 📡 これが出れば「8080番」からの生データ到達が確定します
+                    log_ptr = globals().get('FINAL_LOG')
+                    log_ptr.insert(0, {"name": "📡生データ捕捉", "gift_id": "1", "num": str(message)[:100]})
+
+                    # 無償ギフト(p=0)の抽出
+                    data = json.loads(message)
+                    if isinstance(data, list):
+                        for d in data:
+                            # 無償ギフト(t=gift かつ p=0)
+                            if d.get("t") == "gift" and str(d.get("p")) == "0":
+                                item = {
+                                    "name": d.get("u_name", "不明"),
+                                    "gift_id": d.get("g_id"),
+                                    "num": d.get("n", 1)
+                                }
+                                log_ptr.insert(0, item)
+                                if len(log_ptr) > 50: log_ptr.pop()
                 except:
                     pass
-                
-                # 監視間隔を少し短くして追従性を上げます
-                time.sleep(2)
 
-        # --- 実行制御部分は変更なし ---
-        target_rid = st.session_state.get("room_id")
-        if target_rid and not globals().get('FINAL_WS_RUNNING'):
-            t = threading.Thread(target=gift_polling_core, args=(str(target_rid),), daemon=True)
-            t.start()
+            def on_open(ws):
+                # 8080番ポートへの認証コマンド。末尾に改行を必須とします
+                auth_cmd = f"SUB\t{key}\n"
+                ws.send(auth_cmd.encode('utf-8'))
 
-        # 3. 実行制御
+            # API指定の host:8080 (ws://)
+            ws_url = f"ws://{host}:{port}/"
+            ws = websocket.WebSocketApp(ws_url, on_message=on_message, on_open=on_open)
+            globals()['WS_INSTANCE'] = ws
+            globals()['FINAL_WS_RUNNING'] = True
+            ws.run_forever(ping_interval=20, ping_timeout=10)
+            globals()['FINAL_WS_RUNNING'] = False
+
+        # 2. 実行制御（多重起動を絶対に防ぐ）
         target_rid = st.session_state.get("room_id")
 
         if target_rid:
-            # 接続ホスト等に関わらず、動いていなければスレッド開始
-            if not globals().get('FINAL_WS_RUNNING'):
-                t = threading.Thread(
-                    target=gift_polling_core, 
-                    args=(str(target_rid),), 
-                    daemon=True
-                )
-                t.start()
+            # APIから最新の接続情報を取得
+            if not st.session_state.get("bcsvr_host"):
+                try:
+                    res = requests.get(f"https://www.showroom-live.com/api/live/live_info?room_id={target_rid}").json()
+                    st.session_state.bcsvr_host = res.get("bcsvr_host")
+                    st.session_state.bcsvr_port = res.get("bcsvr_port")
+                    st.session_state.bcsvr_key = res.get("bcsvr_key")
+                except: pass
 
-        # 4. 表示部分
+            # 現在動いていない場合のみ、新しくスレッドを立てる
+            if not globals().get('FINAL_WS_RUNNING'):
+                curr_host = st.session_state.get("bcsvr_host")
+                curr_port = st.session_state.get("bcsvr_port")
+                curr_key = st.session_state.get("bcsvr_key")
+
+                if curr_host and curr_key:
+                    t = threading.Thread(
+                        target=ws_engine_core, 
+                        args=(str(target_rid), str(curr_host), str(curr_port), str(curr_key)),
+                        daemon=True
+                    )
+                    t.start()
+                    # 接続直後は少し待機して安定させる
+                    time.sleep(1)
+
+        # 3. 表示
         st.session_state.free_gift_log = list(globals().get('FINAL_LOG', []))
 
-        st.markdown("### 🌟 無償ギフト (API監視モード)")
+        st.markdown("### 🌟 無償ギフト")
         is_active = globals()['FINAL_WS_RUNNING']
         status_col = "green" if is_active else "red"
-        st.markdown(f"📡 ステータス: <span style='color:{status_col}; font-weight:bold;'>{'✅ 稼働中' if is_active else '❌ 停止'}</span> | 取得ログ: {len(st.session_state.free_gift_log)}件", unsafe_allow_html=True)
+        st.markdown(f"📡 ステータス: <span style='color:{status_col};'>{'✅ 稼働中' if is_active else '❌ 停止'}</span> | 接続先: {st.session_state.get('bcsvr_host')}:{st.session_state.get('bcsvr_port')}", unsafe_allow_html=True)
 
         with st.container(border=True, height=500):
             if st.session_state.free_gift_log:
                 for log in st.session_state.free_gift_log:
                     img_url = f"https://static.showroom-live.com/image/gift/{log['gift_id']}_s.png"
-                    st.markdown(f"<div style='margin-bottom:5px;'><img src='{img_url}' width='25'> <b>{log['name']}</b> ×{log['num']}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div><img src='{img_url}' width='25'> <b>{log.get('name')}</b> ×{log.get('num')}</div>", unsafe_allow_html=True)
             else:
-                st.write("新着の無償ギフトを待機中...")
+                st.write("信号受信待ち... (無償ギフトのパケットを監視しています)")
 
 
 
