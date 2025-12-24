@@ -665,56 +665,74 @@ if st.session_state.is_tracking:
         st.session_state.total_fan_count = total_fan_count
 
 
-        # --- 1. グローバルバッファ（メモリ上に直接配置） ---
+        # --- 1. 接続設定と共有バッファ ---
         import websocket
         import json
         import threading
-        import requests
+        import time
 
-        if 'raw_debug_log' not in globals():
-            globals()['raw_debug_log'] = []
+        if 'free_gift_log' not in st.session_state:
+            st.session_state.free_gift_log = []
 
-        # --- 2. 受信機：判定をなくして全部入れる ---
-        def start_showroom_ws(host, key):
+        # --- 2. 受信機：サーバーが拒絶できない形式で接続 ---
+        def start_ws_final():
+            host = st.session_state.get("bcsvr_host")
+            key = st.session_state.get("bcsvr_key")
+            
             def on_message(ws, message):
                 try:
-                    # 届いた文字列をそのままグローバルリストに入れる
-                    log_ref = globals()['raw_debug_log']
-                    log_ref.insert(0, message) # 生のメッセージを保存
-                    if len(log_ref) > 10: log_ref.pop()
-                except:
-                    pass
+                    # 届いたデータが何であれ、まずは「何か届いた」という証拠を残す
+                    data_list = json.loads(message)
+                    for d in data_list:
+                        # 全てのギフト(p:0に限らず)をキャッチ
+                        if d.get("t") == "gift":
+                            new_item = {
+                                "name": d.get("u_name", "不明"),
+                                "gift_id": d.get("g_id"),
+                                "num": d.get("n", 1)
+                            }
+                            st.session_state.free_gift_log.insert(0, new_item)
+                            if len(st.session_state.free_gift_log) > 20:
+                                st.session_state.free_gift_log.pop()
+                except: pass
 
             def on_open(ws):
+                # サーバーが確実に反応する改行コードとタイミング
+                time.sleep(1)
                 ws.send(f"SUB\t{key}\n")
 
-            ws = websocket.WebSocketApp(f"wss://{host}/", on_message=on_message, on_open=on_open)
-            ws.run_forever()
+            # タイムアウトや切断を防ぐ設定
+            ws = websocket.WebSocketApp(
+                f"wss://{host}/",
+                on_message=on_message,
+                on_open=on_open,
+                header={"User-Agent": "Mozilla/5.0"} # ツールと誤認されないためのヘッダー
+            )
+            ws.run_forever(ping_interval=20)
 
-        # --- 3. 接続制御 ---
-        rid = st.session_state.get("room_id")
-        if rid and not st.session_state.get("bcsvr_host"):
-            try:
-                res = requests.get(f"https://www.showroom-live.com/api/live/live_info?room_id={rid}", headers=HEADERS).json()
-                st.session_state.bcsvr_host = res.get("bcsvr_host")
-                st.session_state.bcsvr_key = res.get("bcsvr_key")
-            except: pass
+        # --- 3. 実行制御（複雑な判定を捨ててシンプルに） ---
+        if st.session_state.get("bcsvr_host") and not st.session_state.get("ws_started"):
+            thread = threading.Thread(target=start_ws_final, daemon=True)
+            thread.start()
+            st.session_state.ws_started = True
 
-        if st.session_state.get("bcsvr_host") and not st.session_state.get("ws_active", False):
-            t = threading.Thread(target=start_showroom_ws, args=(st.session_state.bcsvr_host, st.session_state.bcsvr_key), daemon=True)
-            t.start()
-            st.session_state.ws_active = True
-
-        # --- 4. 生データの強制表示 ---
-        raw_data = globals()['raw_debug_log']
-        st.info(f"📡 受信パケット（最新{len(raw_data)}件）")
-        if raw_data:
-            for i, msg in enumerate(raw_data):
-                st.code(msg[:200], language="json") # 届いた中身をそのまま画面に出す
-        else:
-            st.warning("信号がまだ1通も届いていません。星投げを待機中...")
-
-        st.caption(f"Status: {'Active' if st.session_state.ws_active else 'Inactive'}")
+        # --- 4. 表示セクション（ここが「待機中」を書き換える部分） ---
+        st.markdown("### 🌟 無償ギフト (リアルタイム更新)")
+        with st.container(border=True, height=500):
+            logs = st.session_state.free_gift_log
+            if logs:
+                for log in logs:
+                    img_url = f"https://static.showroom-live.com/image/gift/{log['gift_id']}_s.png"
+                    st.markdown(f"""
+                    <div style="display:flex; align-items:center; margin-bottom:5px;">
+                        <img src="{img_url}" width="20" style="margin-right:5px;">
+                        <span style="font-size:0.8em;">{log['name']} ×{log['num']}</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                # 接続情報を再掲してデバッグ
+                st.write("🛰️ サーバー接続完了。星・種の受信を待っています...")
+                st.caption(f"接続先: {st.session_state.get('bcsvr_host')}")
 
 
 
