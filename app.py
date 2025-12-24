@@ -659,7 +659,7 @@ if st.session_state.is_tracking:
         st.session_state.fan_list = fan_list
         st.session_state.total_fan_count = total_fan_count
 
-# --- 受信機：ヘッダー補強版 ---
+# --- 受信機：URL組み立て修正版 ---
         import websocket
         import json
         import threading
@@ -688,16 +688,19 @@ if st.session_state.is_tracking:
             if key: ws.send(f"SUB\t{key}")
 
         if not st.session_state.get("ws_active", False):
-            rid = st.session_state.get("room_id")
-            if rid:
+            # room_idを徹底的にクリーニング
+            rid_raw = st.session_state.get("room_id")
+            if rid_raw:
                 try:
-                    # 1. 既存のHEADERSをコピーして、1行だけ追加
-                    current_headers = HEADERS.copy()
-                    current_headers["X-Requested-With"] = "XMLHttpRequest"
+                    # 数字以外をすべて排除し、文字列にする
+                    rid = "".join(filter(str.isdigit, str(rid_raw)))
                     
-                    # 2. APIリクエスト
-                    api_url = f"https://www.showroom-live.com/api/live/broadcast_info?room_id={rid}"
-                    res = requests.get(api_url, headers=current_headers, timeout=5)
+                    # params引数を使ってrequestsに安全にURLを組み立てさせる
+                    api_url = "https://www.showroom-live.com/api/live/broadcast_info"
+                    payload = {"room_id": rid}
+                    
+                    # 他のAPIで成功しているHEADERSを流用
+                    res = requests.get(api_url, params=payload, headers=HEADERS, timeout=5)
                     data = res.json()
                     
                     host = data.get("bcsvr_host")
@@ -717,8 +720,8 @@ if st.session_state.is_tracking:
                         st.session_state.ws_debug_msg = "✅ 受信機が動き出しました"
                         st.rerun()
                     else:
-                        # まだ取れない場合は、返ってきたJSONの中身をそのまま表示
-                        st.session_state.ws_debug_msg = f"❌ 応答内容: {data}"
+                        # 失敗した時の「実際の送信URL」を確認
+                        st.session_state.ws_debug_msg = f"❌ 拒絶: {data} (送出URL: {res.url})"
                 except Exception as e:
                     st.session_state.ws_debug_msg = f"❌ 通信例外: {str(e)}"
 
