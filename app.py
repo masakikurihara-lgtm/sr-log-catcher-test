@@ -665,94 +665,76 @@ if st.session_state.is_tracking:
         st.session_state.total_fan_count = total_fan_count
 
 
-# --- 受信機：即時接続・強制起動版 ---
+# --- 安定稼働・全枠復旧版 ---
         import websocket
         import json
         import threading
-        import time
         import requests
 
-        # 1. 表示エリア
-        ws_status_box = st.empty()
+        # 1. 表示エリア（他のログを邪魔しないよう、まずは小さく）
+        ws_status_placeholder = st.empty()
 
-        # 2. 変数の初期化
+        # 2. 変数の初期化（落ちないように安全に取得）
         if "free_gift_log" not in st.session_state:
             st.session_state.free_gift_log = []
         if "ws_counter" not in st.session_state:
             st.session_state.ws_counter = 0
-        if "ws_last_error" not in st.session_state:
-            st.session_state.ws_last_error = "待機中..."
 
-        # 3. 接続情報 (host/key) がない場合、ここで強制的に取得する
+        # 3. 接続情報 (host/key) がない場合のみ取得
         rid = st.session_state.get("room_id")
-        if rid and (not st.session_state.get("bcsvr_host") or not st.session_state.get("bcsvr_key")):
+        if rid and not st.session_state.get("bcsvr_host"):
             try:
-                # 他のAPIと同じHEADERSを使用して情報を取得
-                api_url = f"https://www.showroom-live.com/api/live/live_info?room_id={rid}"
-                res = requests.get(api_url, headers=HEADERS, timeout=5)
+                # APIを叩く
+                res = requests.get(f"https://www.showroom-live.com/api/live/live_info?room_id={rid}", headers=HEADERS, timeout=5)
                 data = res.json()
                 st.session_state.bcsvr_host = data.get("bcsvr_host")
                 st.session_state.bcsvr_key = data.get("bcsvr_key")
-            except Exception as e:
-                st.session_state.ws_last_error = f"API取得失敗: {str(e)}"
+            except:
+                pass
 
-        # 4. WebSocketの定義
+        # 4. WebSocket受信処理
         def on_message(ws, message):
-            st.session_state.ws_counter += 1
             try:
                 data_list = json.loads(message)
                 for d in data_list:
-                    if d.get("t") == "gift":
+                    if d.get("t") == "gift" and str(d.get("p")) == "0":
                         new_data = {
                             "name": d.get("u_name", "不明"),
                             "gift_id": d.get("g_id"),
-                            "num": d.get("n", 1),
-                            "p": d.get("p")
+                            "num": d.get("n", 1)
                         }
-                        if not st.session_state.free_gift_log or st.session_state.free_gift_log[0] != new_data:
-                            st.session_state.free_gift_log.insert(0, new_data)
-                            st.session_state.free_gift_log = st.session_state.free_gift_log[:20]
-            except: pass
+                        # リストの先頭に追加
+                        st.session_state.free_gift_log.insert(0, new_data)
+                        if len(st.session_state.free_gift_log) > 20:
+                            st.session_state.free_gift_log.pop()
+                st.session_state.ws_counter += 1
+            except:
+                pass
 
         def on_open(ws):
             key = st.session_state.get("bcsvr_key")
             if key:
                 ws.send(f"SUB\t{key}\n")
-                st.session_state.ws_last_error = "なし (SUB送信済)"
 
-        # 5. 接続が「切断」状態ならスレッドを立てて接続する
-        if not st.session_state.get("ws_active", False):
-            host = st.session_state.get("bcsvr_host")
-            if host:
-                def run():
+        # 5. 接続開始（無限ループ回避のため rerun は行わない）
+        if st.session_state.get("bcsvr_host") and not st.session_state.get("ws_active", False):
+            def run_ws():
+                try:
+                    ws = websocket.WebSocketApp(
+                        f"wss://{st.session_state.bcsvr_host}/",
+                        on_message=on_message, on_open=on_open
+                    )
                     st.session_state.ws_active = True
-                    try:
-                        ws = websocket.WebSocketApp(
-                            f"wss://{host}/",
-                            on_message=on_message, on_open=on_open
-                        )
-                        ws.run_forever()
-                    finally:
-                        st.session_state.ws_active = False
+                    ws.run_forever()
+                finally:
+                    st.session_state.ws_active = False
 
-                t = threading.Thread(target=run, daemon=True)
-                t.start()
-                time.sleep(0.5) # 起動待ち
-                st.rerun()
+            t = threading.Thread(target=run_ws, daemon=True)
+            t.start()
 
-        # 6. ステータス表示
-        curr_key = st.session_state.get('bcsvr_key', '')
-        display_key = str(curr_key)[:10] if curr_key else "取得失敗"
-        status_color = "green" if st.session_state.ws_active else "red"
-        
-        ws_status_box.markdown(f"""
-            <div style="background-color: #f0f2f6; padding: 10px; border-radius: 5px; border-left: 5px solid {status_color};">
-                <strong>📡 通信ステータス:</strong> {'✅ 接続中' if st.session_state.ws_active else '❌ 切断'}<br>
-                <strong>📥 受信数:</strong> {st.session_state.ws_counter}<br>
-                <strong>⚠️ 最新エラー:</strong> {st.session_state.ws_last_error}<br>
-                <strong>🔑 Key一部:</strong> {display_key}
-            </div>
-        """, unsafe_allow_html=True)
+        # 6. ステータスを控えめに表示（これで他の枠の邪魔をしません）
+        status_txt = "✅ 接続中" if st.session_state.get("ws_active") else "❌ 待機中"
+        ws_status_placeholder.caption(f"📡 受信機: {status_txt} | 信号数: {st.session_state.ws_counter}")
 
 
 
