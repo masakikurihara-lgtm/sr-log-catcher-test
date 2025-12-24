@@ -659,11 +659,12 @@ if st.session_state.is_tracking:
         st.session_state.fan_list = fan_list
         st.session_state.total_fan_count = total_fan_count
 
-# --- スレッド管理の最適化版 ---
+# --- 自己修復機能付き受信機 ---
         import websocket
         import json
         import threading
         import time
+        import requests
 
         if "ws_debug_msg" not in st.session_state:
             st.session_state.ws_debug_msg = "初期状態"
@@ -684,30 +685,42 @@ if st.session_state.is_tracking:
 
         def on_open(ws):
             key = st.session_state.get("bcsvr_key")
-            ws.send(f"SUB\t{key}")
+            if key:
+                ws.send(f"SUB\t{key}")
 
-        # --- 接続ループ用関数 ---
-        def run_ws_loop(host):
-            ws_url = f"wss://{host}/"
-            ws = websocket.WebSocketApp(ws_url, on_message=on_message, on_open=on_open)
-            ws.run_forever()
-
-        # --- スレッドの重複起動を防止して開始 ---
-        # "ws_thread"そのものをセッションで管理します
+        # --- スレッドの起動管理 ---
         if "ws_active" not in st.session_state or not st.session_state.ws_active:
+            # 1. もしhostが空なら、ここで直接取得を試みる（自己修復）
             host = st.session_state.get("bcsvr_host")
-            if host:
-                # スレッドを作成して即開始
-                t = threading.Thread(target=run_ws_loop, args=(host,), daemon=True)
+            key = st.session_state.get("bcsvr_key")
+            
+            if not host or not key:
+                try:
+                    b_url = f"https://www.showroom-live.com/api/live/broadcast_info?room_id={st.session_state.room_id}"
+                    b_res = requests.get(b_url, headers=HEADERS, timeout=5).json()
+                    host = b_res.get("bcsvr_host")
+                    key = b_res.get("bcsvr_key")
+                    st.session_state.bcsvr_host = host
+                    st.session_state.bcsvr_key = key
+                except:
+                    pass
+
+            # 2. hostが確保できたらスレッド開始
+            if host and key:
+                def run_ws_loop():
+                    ws_url = f"wss://{host}/"
+                    ws = websocket.WebSocketApp(ws_url, on_message=on_message, on_open=on_open)
+                    ws.run_forever()
+
+                t = threading.Thread(target=run_ws_loop, daemon=True)
                 t.start()
                 
                 st.session_state.ws_active = True
                 st.session_state.ws_debug_msg = "✅ 受信機が動き出しました"
-                time.sleep(0.2)
+                time.sleep(0.1)
                 st.rerun()
             else:
-                st.session_state.ws_debug_msg = "⚠️ 接続先(host)が未設定です"
-        # ----------------------------
+                st.session_state.ws_debug_msg = f"❌ ルームID({st.session_state.room_id})の接続情報が取得できません"
 
 
         st.markdown("---")
