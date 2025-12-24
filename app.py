@@ -683,29 +683,29 @@ if st.session_state.is_tracking:
 
             def on_message(ws, message):
                 try:
-                    # 👈 常に「今」のグローバル変数からリストを取得する
-                    # これにより、リブート後も「表の画面」と同じ箱に書き込みます
-                    current_log = globals().get('FINAL_LOG')
-                    if current_log is None: return
-
                     data = json.loads(message)
+                    # 👈 修正：log_ptr（固定された古い参照）を使わず、
+                    # 常に「今」の globals()['FINAL_LOG'] を直接叩く
+                    target = globals().get('FINAL_LOG')
+                    if target is None: return
+
                     for d in data:
+                        # 条件判定はあなたの設計通り（t=gift, p=0）
                         if d.get("t") == "gift" and str(d.get("p")) == "0":
                             item = {
                                 "name": d.get("u_name", "不明"),
                                 "gift_id": d.get("g_id"),
                                 "num": d.get("n", 1)
                             }
-                            # 常に最新の参照にデータをねじ込む
-                            current_log.insert(0, item)
-                            if len(current_log) > 50:
-                                current_log.pop()
-
+                            # 最新の「箱」にねじ込む
+                            target.insert(0, item)
+                            if len(target) > 50:
+                                target.pop()
                 except Exception as e:
-                    # エラーが起きているなら、それを物理的にねじ込む
-                    err_list = globals().get('FINAL_LOG')
-                    if err_list is not None:
-                        err_list.insert(0, {"name": "⚠️ ERROR", "gift_id": "1", "num": str(e)})
+                    # ここでエラーが出るなら「箱」へのアクセスミスです
+                    g = globals().get('FINAL_LOG')
+                    if g is not None:
+                        g.insert(0, {"name": "⚠️ ERROR", "gift_id": "1", "num": str(e)})
 
             def on_open(ws):
                 # 👈 time.sleep(3) を削除します。接続した瞬間に鍵を送るのが本質です。
