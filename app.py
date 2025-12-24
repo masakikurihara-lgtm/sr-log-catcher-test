@@ -680,7 +680,6 @@ if st.session_state.is_tracking:
         # 2. 受信機エンジン（判定を極限まで甘くし、とにかくログを出す）
         def ws_engine_core(rid, host, key):
             def on_message(ws, message):
-                globals()['FINAL_LOG'].insert(0, {"name": "SYSTEM", "gift_id": "1", "num": "信号受信"})
                 try:
                     data = json.loads(message)
                     
