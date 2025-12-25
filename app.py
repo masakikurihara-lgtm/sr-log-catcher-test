@@ -797,10 +797,10 @@ if st.session_state.is_tracking:
         st.markdown(f"<p style='font-size:12px; color:#a1a1a1;'>※約10秒ごとに自動更新されます。</p>", unsafe_allow_html=True)
 
         # カラムを4つに分割
-        col_comment, col_free_gift, col_gift, col_fan = st.columns(4)
+        col_comment, col_gift, col_free_gift, col_fan = st.columns(4)
 
         with col_comment:
-            st.markdown("### 📝 コメント")
+            st.markdown("#### 📝 コメント")
             with st.container(border=True, height=500):
                 filtered_comments = [
                     log for log in st.session_state.comment_log 
@@ -829,43 +829,8 @@ if st.session_state.is_tracking:
                 else:
                     st.info("コメントがありません。")
 
-        with col_free_gift:
-            st.markdown("### 🎈 無償ギフト")
-            with st.container(border=True, height=500):
-                if st.session_state.free_gift_log:
-                    for log in st.session_state.free_gift_log:
-                        user_name = log.get('name', '匿名ユーザー')
-                        created_at = datetime.datetime.fromtimestamp(log.get('created_at', 0), JST).strftime("%H:%M:%S")
-                        gift_count = log.get('num', 0)
-                        gift_point = log.get('point', 1) # 1pt
-                        gift_image_url = log.get('image', '')
-                        avatar_id = log.get('avatar_id', None)
-                        avatar_url = f"https://static.showroom-live.com/image/avatar/{avatar_id}.png" if avatar_id else DEFAULT_AVATAR
-                        
-                        # デザインをスペシャルギフト(col_gift)と統一
-                        html = f"""
-                        <div class="gift-item">
-                            <div class="gift-item-row">
-                                <img src="{avatar_url}" class="gift-avatar" />
-                                <div class="gift-content">
-                                    <div class="gift-time">{created_at}</div>
-                                    <div class="gift-user">{user_name}</div>
-                                    <div class="gift-info-row">
-                                        <img src="{gift_image_url}" class="gift-image" />
-                                        <span>×{gift_count}</span>
-                                    </div>
-                                    <div>{gift_point} pt</div>
-                                </div>
-                            </div>
-                        </div>
-                        <hr style="border: none; border-top: 1px solid #eee; margin: 8px 0;">
-                        """
-                        st.markdown(html, unsafe_allow_html=True)
-                else:
-                    st.info("無償ギフトはまだありません。")
-
         with col_gift:
-            st.markdown("### 🎁 スペシャル")
+            st.markdown("#### 🎁 スペシャルギフト")
             with st.container(border=True, height=500):
                 if st.session_state.gift_log and st.session_state.gift_list_map:
                     for log in st.session_state.gift_log:
@@ -910,8 +875,43 @@ if st.session_state.is_tracking:
                 else:
                     st.info("ギフトがありません。")
 
+        with col_free_gift:
+            st.markdown("#### 🎈 無償ギフト")
+            with st.container(border=True, height=500):
+                if st.session_state.free_gift_log:
+                    for log in st.session_state.free_gift_log:
+                        user_name = log.get('name', '匿名ユーザー')
+                        created_at = datetime.datetime.fromtimestamp(log.get('created_at', 0), JST).strftime("%H:%M:%S")
+                        gift_count = log.get('num', 0)
+                        gift_point = log.get('point', 1) # 1pt
+                        gift_image_url = log.get('image', '')
+                        avatar_id = log.get('avatar_id', None)
+                        avatar_url = f"https://static.showroom-live.com/image/avatar/{avatar_id}.png" if avatar_id else DEFAULT_AVATAR
+                        
+                        # デザインをスペシャルギフト(col_gift)と統一
+                        html = f"""
+                        <div class="gift-item">
+                            <div class="gift-item-row">
+                                <img src="{avatar_url}" class="gift-avatar" />
+                                <div class="gift-content">
+                                    <div class="gift-time">{created_at}</div>
+                                    <div class="gift-user">{user_name}</div>
+                                    <div class="gift-info-row">
+                                        <img src="{gift_image_url}" class="gift-image" />
+                                        <span>×{gift_count}</span>
+                                    </div>
+                                    <div>{gift_point} pt</div>
+                                </div>
+                            </div>
+                        </div>
+                        <hr style="border: none; border-top: 1px solid #eee; margin: 8px 0;">
+                        """
+                        st.markdown(html, unsafe_allow_html=True)
+                else:
+                    st.info("無償ギフトはまだありません。")
+
         with col_fan:
-            st.markdown("### 🏆 ファンリスト")
+            st.markdown("#### 🏆 ファンリスト")
             with st.container(border=True, height=500):
                 if st.session_state.fan_list:
                     for fan in st.session_state.fan_list:
