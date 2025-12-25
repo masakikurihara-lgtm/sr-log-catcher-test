@@ -201,18 +201,20 @@ CSS_STYLE = """
     border-radius: 50%;
     object-fit: cover;
 }
-.comment-content, .gift-content {
+.comment-content, .gift-content, .fan-content {
     flex-grow: 1;
     display: flex;
     flex-direction: column;
+    min-width: 0;
 }
 .comment-time, .gift-time {
     font-size: 0.8em;
     color: #888;
 }
-.comment-user, .gift-user {
+.comment-user, .gift-user, .fan-user {
     font-weight: bold;
     color: #333;
+    word-wrap: break-word;
 }
 .comment-text {
     margin-top: 4px;
@@ -921,16 +923,16 @@ if st.session_state.is_tracking:
             st.markdown("#### 🏆 ファンリスト")
             with st.container(border=True, height=500):
                 if st.session_state.fan_list:
-                    # 💡 表示制限コントロール
-                    display_fans = st.session_state.fan_list # [:100]
+                    display_fans = st.session_state.fan_list
                     for fan in display_fans:
+                        # 他のカラム（comment-item等）と全く同じクラス構成に変更
                         html = f"""
                         <div class="fan-item">
                             <div class="fan-info-row">
                                 <img src="https://static.showroom-live.com/image/avatar/{fan.get('avatar_id', 0)}.png?v=108" class="fan-avatar" />
-                                <div>
+                                <div class="fan-content">
                                     <div class="fan-level">Lv. {fan.get('level', 0)}</div>
-                                    <div>{fan.get('user_name', '不明なユーザー')}</div>
+                                    <div class="fan-user">{fan.get('user_name', '不明なユーザー')}</div>
                                 </div>
                             </div>
                         </div>
