@@ -561,9 +561,10 @@ if st.button("トラッキング開始", key="start_button"):
 
 if st.button("トラッキング停止", key="stop_button", disabled=not st.session_state.is_tracking):
     if st.session_state.is_tracking:
-        # コメント・ギフト共に共通フォーマットで保存
+        # 保存対象に無償ギフトを追加
         save_log_to_ftp("comment")
         save_log_to_ftp("gift")
+        save_log_to_ftp("free_gift")
 
     st.session_state.is_tracking = False
     st.session_state.room_info = None
