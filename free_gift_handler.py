@@ -114,12 +114,12 @@ def update_free_gift_master(room_id):
                 for category in category_list:
                     gifts = category.get("list", [])
                     for gift in gifts:
-                        # 修正ポイント：is_not_freeがFalse かつ freeがTrue のものだけを「無償ギフト」とする
-                        if gift.get("is_not_free") == False and gift.get("free") == True:
+                        # 修正：free かつ point が 1 のものだけを「無償ギフト（星・種）」とみなす
+                        if gift.get("free") == True and gift.get("point") == 1:
                             master[gift["gift_id"]] = {
                                 "name": gift["gift_name"],
                                 "image": gift["image"],
-                                "point": gift.get("point", 1) # SHOWROOM仕様に基づき point を優先
+                                "point": 1
                             }
         st.session_state.free_gift_master = master
     except Exception as e:
