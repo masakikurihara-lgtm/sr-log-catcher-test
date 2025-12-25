@@ -116,7 +116,7 @@ def update_free_gift_master(room_id):
                     for gift in gifts:
                         # 修正：free かつ point が 1 のものだけを「無償ギフト（星・種）」とみなす
                         if gift.get("free") == True and gift.get("point") == 1:
-                            master[gift["gift_id"]] = {
+                            master[str(gift["gift_id"])] = {
                                 "name": gift["gift_name"],
                                 "image": gift["image"],
                                 "point": 1

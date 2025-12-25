@@ -436,8 +436,8 @@ def update_free_gift_master(room_id):
         for category in data.values():
             if isinstance(category, list):
                 for gift in category:
-                    # 無償ギフト(free: True)のみをマスターに登録
-                    if gift.get("free") == True:
+                    # フリー かつ point が 1 のものだけをマスターに登録する
+                    if gift.get("free") == True and gift.get("point") == 1:
                         new_master[gift.get("gift_id")] = {
                             "name": gift.get("gift_name"),
                             "point": gift.get("point", 0),
@@ -740,8 +740,11 @@ if st.session_state.is_tracking:
                 raw_data = gift_queue.get_nowait()
                 gift_id = raw_data.get("g")
                 
-                # 修正ポイント：マスターに存在しないギフト（有償ギフト）は無視する
-                if gift_id not in st.session_state.get("free_gift_master", {}):
+                # 💡 ここが重要：マスター（1ptのギフトだけが入っている辞書）に
+                # 存在しないギフトID（20ptなど）は、このループでは処理せず無視（continue）する
+                # これにより、20ptは「スペシャルギフト」側にのみ表示されるようになります
+                master = st.session_state.get("free_gift_master", {}).get(gift_id)
+                if not master:
                     continue
                 
                 master = st.session_state.free_gift_master[gift_id]
