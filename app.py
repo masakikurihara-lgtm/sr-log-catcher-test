@@ -671,100 +671,115 @@ if st.session_state.is_tracking:
         import time
         import requests
         import streamlit as st
-        import re
 
-        # 1. データ管理
+        # 1. データの保管場所（ブラウザ更新時もスレッドを維持するためglobalsを使用）
         if 'FREE_GIFT_LOG' not in globals():
             globals()['FREE_GIFT_LOG'] = []
-        if 'MONITOR_THREAD' not in globals():
-            globals()['MONITOR_THREAD'] = None
+        if 'WS_MONITOR_THREAD' not in globals():
+            globals()['WS_MONITOR_THREAD'] = None
 
-        def ws_final_catcher(rid, host, port, key):
+        def ws_engine_star_seed(rid, host, port, key):
             def on_message(ws, message):
                 try:
                     msg_str = message.decode('utf-8', errors='ignore') if isinstance(message, bytes) else str(message)
                     
-                    # 生存確認
+                    # 生存確認（ACK）への応答
                     if msg_str.startswith("ACK\t"):
                         ws.send(f"{msg_str}\n".encode('utf-8'))
                         return
 
-                    # ヘッダー除去してJSON解析
-                    start_ptr = msg_str.find('{')
-                    if start_ptr == -1: return
-                    data = json.loads(msg_str[start_ptr:])
+                    # JSONデータの抽出（MSG 123...: { ... } の中身を取り出す）
+                    start_idx = msg_str.find('{')
+                    if start_idx == -1: return
+                    
+                    data = json.loads(msg_str[start_idx:])
                     items = data if isinstance(data, list) else [data]
                     
                     for d in items:
-                        msg_body = d.get("m", "") # メッセージ本文
-                        user_name = d.get("u_name", d.get("u", "不明"))
-                        msg_type = d.get("t") # メッセージ種別
-
-                        # 【核心】メッセージ本文から星や種のキーワードを抽出
-                        # 例: "〇〇さんが星を投げました" などのパターンを検知
-                        is_free_gift = False
-                        gift_name = "ギフト"
+                        # 【最重要】提供された生ログに基づくキー判定
+                        # t=2 (ギフトイベント), g (ギフトID), gt=2 (無償系ギフト)
+                        g_id = d.get("g")
+                        gt_type = d.get("gt")
                         
-                        if "星" in msg_body and "投げました" in msg_body:
-                            is_free_gift = True
-                            gift_name = "星"
-                        elif "種" in msg_body and "投げました" in msg_body:
-                            is_free_gift = True
-                            gift_name = "種"
-                        elif d.get("g_id"): # 念のため、従来のg_id形式も残す
-                            is_free_gift = True
-                            gift_name = "ギフト"
-
-                        if is_free_gift:
+                        if g_id and gt_type == 2:
+                            # ギフトIDに応じた名称の割り当て
+                            g_name = "ギフト"
+                            if g_id == 3000421: g_name = "キラキラ星"
+                            elif g_id == 3000842: g_name = "種(赤)"
+                            
                             new_item = {
                                 "time": time.strftime("%H:%M:%S", time.localtime()),
-                                "name": user_name,
-                                "content": msg_body if msg_body else f"{gift_name}を投げました",
-                                "type": gift_name
+                                "user": d.get("ac", "不明"), # 'ac' がアカウント名
+                                "gift_id": g_id,
+                                "gift_name": g_name,
+                                "num": d.get("n", 1) # 'n' が個数
                             }
+                            
                             globals()['FREE_GIFT_LOG'].insert(0, new_item)
+                            # ログは最新50件まで
                             if len(globals()['FREE_GIFT_LOG']) > 50:
                                 globals()['FREE_GIFT_LOG'].pop()
-                except:
+                except Exception:
                     pass
 
             def on_open(ws):
+                # 購読開始
                 ws.send(f"SUB\t{key}\n".encode('utf-8'))
 
+            # wss (443) か ws (8080) かを自動判別
             ws_url = f"wss://{host}/" if str(port) == "443" else f"ws://{host}:{port}/"
             ws = websocket.WebSocketApp(ws_url, on_message=on_message, on_open=on_open)
             ws.run_forever(ping_interval=20, ping_timeout=10)
 
-        # 2. 実行制御
+        # --- 2. 接続管理 ---
         target_rid = st.session_state.get("room_id")
+
         if target_rid:
-            if not st.session_state.get("bcsvr_host"):
+            # 接続情報が未取得の場合はAPIから取得
+            if "bcsvr_info" not in st.session_state:
                 try:
                     res = requests.get(f"https://www.showroom-live.com/api/live/live_info?room_id={target_rid}").json()
-                    st.session_state.bcsvr_host, st.session_state.bcsvr_port, st.session_state.bcsvr_key = res.get("bcsvr_host"), res.get("bcsvr_port"), res.get("bcsvr_key")
+                    st.session_state.bcsvr_info = {
+                        "host": res.get("bcsvr_host"),
+                        "port": res.get("bcsvr_port"),
+                        "key": res.get("bcsvr_key")
+                    }
                 except: pass
 
-            if globals().get('MONITOR_THREAD') is None or not globals()['MONITOR_THREAD'].is_alive():
-                h, p, k = st.session_state.get("bcsvr_host"), st.session_state.get("bcsvr_port"), st.session_state.get("bcsvr_key")
-                if h and k:
-                    t = threading.Thread(target=ws_final_catcher, args=(str(target_rid), str(h), str(p), str(k)), daemon=True)
-                    t.start()
-                    globals()['MONITOR_THREAD'] = t
+            # スレッドが動いていなければ開始
+            info = st.session_state.get("bcsvr_info")
+            if info and (globals()['WS_MONITOR_THREAD'] is None or not globals()['WS_MONITOR_THREAD'].is_alive()):
+                t = threading.Thread(
+                    target=ws_engine_star_seed, 
+                    args=(str(target_rid), info['host'], info['port'], info['key']),
+                    daemon=True
+                )
+                t.start()
+                globals()['WS_MONITOR_THREAD'] = t
 
-        # 3. 表示
-        display_list = list(globals().get('FREE_GIFT_LOG', []))
-        st.markdown("### 🌟 無償ギフト抽出ログ (テロップ解析)")
-        is_alive = globals().get('MONITOR_THREAD') and globals()['MONITOR_THREAD'].is_alive()
-        st.markdown(f"📡 ステータス: {'✅ 稼働中' if is_alive else '❌ 停止'} | 抽出数: {len(display_list)}件", unsafe_allow_html=True)
+        # --- 3. 表示部分 ---
+        st.markdown("### 🌟 無償ギフト抽出 (星・種 専用)")
+
+        is_active = globals()['WS_MONITOR_THREAD'] and globals()['WS_MONITOR_THREAD'].is_alive()
+        status_color = "green" if is_active else "red"
+        st.markdown(f"📡 ステータス: <span style='color:{status_color};'>{'✅ 稼働中' if is_active else '❌ 停止'}</span>", unsafe_allow_html=True)
+
+        display_log = list(globals()['FREE_GIFT_LOG'])
 
         with st.container(border=True, height=500):
-            if display_list:
-                for item in display_list:
-                    icon = "⭐" if item['type'] == "星" else "🌱" if item['type'] == "種" else "🎁"
-                    st.markdown(f"<div style='border-bottom:1px solid #444; padding:5px;'><small>{item['time']}</small> {icon} <b>{item['name']}</b>: {item['content']}</div>", unsafe_allow_html=True)
+            if display_log:
+                for item in display_log:
+                    img_url = f"https://static.showroom-live.com/image/gift/{item['gift_id']}_s.png"
+                    st.markdown(
+                        f"<div style='margin-bottom:8px; border-bottom:1px solid #333; padding-bottom:5px;'>"
+                        f"<span style='color:gray; font-size:0.8em;'>{item['time']}</span> "
+                        f"<img src='{img_url}' width='20' style='vertical-align:middle;'> "
+                        f"<b>{item['user']}</b> さんが <b>{item['gift_name']}</b> を <b>×{item['num']}</b> 投げました"
+                        f"</div>", 
+                        unsafe_allow_html=True
+                    )
             else:
-                st.info("星・種のテロップ信号を待機しています...")
-
+                st.info("星・種の信号をスキャンしています...（投げられるまでお待ちください）")
 
 
         st.markdown("---")
