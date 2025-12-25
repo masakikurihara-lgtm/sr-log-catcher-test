@@ -20,14 +20,19 @@ class FreeGiftReceiver:
                 if len(parts) < 3: return
                 data = json.loads(parts[2])
 
+                # 【デバッグ用】届いたすべてのパケットの型（t）を表示
+                # print(f"DEBUG: 受信パケット t={data.get('t')}") 
+
                 # ギフトメッセージ(t=2)のみを対象
                 if data.get("t") == 2:
-                    # app.pyのsession_stateにデータを追加するためのキュー(リスト)に保存
+                    # 【デバッグ用】ギフトデータの中身を表示
+                    # print(f"DEBUG: ギフトデータ受信 g={data.get('g')}, n={data.get('n')}")
+                    
                     if "raw_free_gift_queue" not in st.session_state:
                         st.session_state.raw_free_gift_queue = []
                     st.session_state.raw_free_gift_queue.append(data)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"DEBUG: 解析エラー {e}")
 
     def on_open(self, ws):
         ws.send(f"SUB\t{self.key}")

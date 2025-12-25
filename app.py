@@ -730,35 +730,35 @@ if st.session_state.is_tracking:
         st.session_state.total_fan_count = total_fan_count
 
         # --- 無償ギフト生データの処理 (キューからログへ変換) ---
+# --- 無償ギフト生データの処理 (app.py内) ---
         if st.session_state.get("raw_free_gift_queue"):
+            # 【デバッグ用】現在キューに何件あるか画面に表示
+            # st.sidebar.write(f"デバッグ: キュー内の件数 {len(st.session_state.raw_free_gift_queue)}")
+            
             current_queue = st.session_state.raw_free_gift_queue[:]
             st.session_state.raw_free_gift_queue = []
             
             for raw_data in current_queue:
                 gift_id = raw_data.get("g")
+                
+                # ここが怪しい：マスターに無い場合にスキップしていないか？
                 if gift_id in st.session_state.free_gift_master:
                     master = st.session_state.free_gift_master[gift_id]
-                    
+                    # (以下、既存の new_entry 作成処理)
+                else:
+                    # 【デバッグ用】マスターに無いギフトを受信した場合に強制表示
                     new_entry = {
                         "created_at": raw_data.get("created_at"),
                         "user_id": raw_data.get("u"),
-                        "name": raw_data.get("ac"), # 既存のキー名'name'に合わせる
+                        "name": raw_data.get("ac"),
                         "avatar_id": raw_data.get("av"),
                         "gift_id": gift_id,
-                        "gift_name": master["name"],
-                        "point": master["point"],
+                        "gift_name": f"未登録ギフト({gift_id})",
+                        "point": 1,
                         "num": raw_data.get("n"),
-                        "image": master["image"]
+                        "image": "" # 画像なし
                     }
-                    # 重複チェック
-                    is_duplicate = any(
-                        l["created_at"] == new_entry["created_at"] and 
-                        l["user_id"] == new_entry["user_id"] and 
-                        l["gift_id"] == new_entry["gift_id"]
-                        for l in st.session_state.free_gift_log[-20:]
-                    )
-                    if not is_duplicate:
-                        st.session_state.free_gift_log.append(new_entry)
+                    st.session_state.free_gift_log.append(new_entry)
             
             # 新しい順にソート
             st.session_state.free_gift_log.sort(key=lambda x: x["created_at"], reverse=True)
