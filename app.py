@@ -9,12 +9,7 @@ import ftplib
 import io
 import datetime
 import os
-import websocket
-
-
-# スレッド間でデータを共有するための「外枠」を定義
-if 'global_free_gift_buffer' not in globals():
-    global_free_gift_buffer = []
+from free_gift_handler import FreeGiftReceiver
 
 
 def upload_csv_to_ftp(filename: str, csv_buffer: io.BytesIO):
@@ -288,8 +283,6 @@ if "comment_log" not in st.session_state:
     st.session_state.comment_log = []
 if "gift_log" not in st.session_state:
     st.session_state.gift_log = []
-if "free_gift_log" not in st.session_state:
-    st.session_state.free_gift_log = []
 if "fan_list" not in st.session_state:
     st.session_state.fan_list = []
 if "gift_list_map" not in st.session_state:
@@ -298,6 +291,17 @@ if 'onlives_data' not in st.session_state:
     st.session_state.onlives_data = {}
 if 'total_fan_count' not in st.session_state:
     st.session_state.total_fan_count = 0
+
+# --- 無償ギフト用に追加 ---
+if "free_gift_log" not in st.session_state:
+    st.session_state.free_gift_log = []
+if "raw_free_gift_queue" not in st.session_state:
+    st.session_state.raw_free_gift_queue = []
+if "free_gift_master" not in st.session_state:
+    st.session_state.free_gift_master = {} # {gift_id: {name, point, image}}
+if "ws_receiver" not in st.session_state:
+    st.session_state.ws_receiver = None
+# -----------------------
 
 # --- API連携関数 ---
 
@@ -415,6 +419,33 @@ def get_room_list():
     except Exception:
         return pd.DataFrame()
 
+
+def update_free_gift_master(room_id):
+    """ギフトリストAPIから無償ギフト(free=True)のみを抽出し、セッション状態のマスターを更新する"""
+    url = f"https://www.showroom-live.com/api/live/gift_list?room_id={room_id}"
+    try:
+        response = requests.get(url, headers=HEADERS, timeout=5)
+        response.raise_for_status()
+        data = response.json()
+        
+        # normal などのリストの中にギフト情報が入っている
+        new_master = {}
+        # normal, special, enquete など複数のカテゴリを走査
+        for category in data.values():
+            if isinstance(category, list):
+                for gift in category:
+                    # 無償ギフト(free: True)のみをマスターに登録
+                    if gift.get("free") == True:
+                        new_master[gift.get("gift_id")] = {
+                            "name": gift.get("gift_name"),
+                            "point": gift.get("point", 0),
+                            "image": gift.get("image")
+                        }
+        st.session_state.free_gift_master = new_master
+    except Exception as e:
+        st.error(f"ギフトリストの取得に失敗しました: {e}")
+
+
 # --- UI構築 ---
 
 #st.markdown("<h1 style='font-size:2.5em;'>🎤 SHOWROOM 配信ログ収集ツール</h1>", unsafe_allow_html=True)
@@ -475,41 +506,57 @@ input_room_id = st.text_input("対象のルームIDを入力してください:"
 
 # --- ボタンを縦並びに配置 ---
 if st.button("トラッキング開始", key="start_button"):
-    if input_room_id and input_room_id.isdigit():
-        room_list_df = get_room_list()
-        valid_ids = set(str(x) for x in room_list_df.iloc[:,0].dropna().astype(int))
+            if input_room_id and input_room_id.isdigit():
+                room_list_df = get_room_list()
+                valid_ids = set(str(x) for x in room_list_df.iloc[:,0].dropna().astype(int))
 
-        # ✅ 特別認証モード（mksp154851）の場合はバイパス許可
-        if not st.session_state.get("is_master_access", False) and input_room_id not in valid_ids:
-            st.error("指定されたルームIDが見つからないか、認証されていないルームIDか、現在配信中ではありません。")
-        else:
-            # --- 1. まず先にAPIから接続情報を「変数」として取る ---
-            import requests
-            b_url = f"https://www.showroom-live.com/api/live/broadcast_info?room_id={input_room_id}"
-            try:
-                b_res = requests.get(b_url, headers=HEADERS, timeout=5).json()
-                # ここでセッションにガッチリ保存する
-                st.session_state.bcsvr_host = b_res.get("bcsvr_host")
-                st.session_state.bcsvr_port = b_res.get("bcsvr_port")
-                st.session_state.bcsvr_key  = b_res.get("bcsvr_key")
-            except Exception as e:
-                st.error(f"接続情報の取得に失敗しました: {e}")
+                # ✅ 特別認証モード（mksp154851）の場合はバイパス許可
+                if not st.session_state.get("is_master_access", False) and input_room_id not in valid_ids:
+                    st.error("指定されたルームIDが見つからないか、認証されていないルームIDか、現在配信中ではありません。")
+                else:
+                    # --- 基本設定 ---
+                    st.session_state.is_tracking = True
+                    st.session_state.room_id = input_room_id
+                    
+                    # --- 既存ログの初期化 ---
+                    st.session_state.comment_log = []
+                    st.session_state.gift_log = []
+                    st.session_state.gift_list_map = {}
+                    st.session_state.fan_list = []
+                    st.session_state.total_fan_count = 0
+                    
+                    # --- 新設：無償ギフト用の初期化 ---
+                    st.session_state.free_gift_log = []
+                    st.session_state.raw_free_gift_queue = []
+                    
+                    # 1. 無償ギフトマスター（名前・画像・ポイント）の取得
+                    update_free_gift_master(input_room_id)
+                    
+                    # 2. WebSocket接続情報の取得
+                    streaming_info = get_streaming_server_info(input_room_id)
+                    
+                    if streaming_info:
+                        # 3. 既存の受信機が動いていれば停止
+                        if st.session_state.get("ws_receiver"):
+                            try:
+                                st.session_state.ws_receiver.stop()
+                            except:
+                                pass
+                        
+                        # 4. 無償ギフト受信機（WebSocket）をバックグラウンドで起動
+                        receiver = FreeGiftReceiver(
+                            room_id=input_room_id,
+                            bcsvr_host=streaming_info["host"],
+                            bcsvr_key=streaming_info["key"]
+                        )
+                        receiver.start()
+                        st.session_state.ws_receiver = receiver
+                    else:
+                        st.warning("配信サーバー情報の取得に失敗したため、無償ギフトのリアルタイム取得はスキップされます。")
 
-            # --- 2. その後で他の状態を初期化する ---
-            st.session_state.is_tracking = True
-            st.session_state.room_id = input_room_id
-            st.session_state.comment_log = []
-            st.session_state.gift_log = []
-            st.session_state.free_gift_log = [] 
-            st.session_state.gift_list_map = {}
-            st.session_state.fan_list = []
-            st.session_state.total_fan_count = 0
-            
-            # --- 3. 最後にリセット（これを忘れると反映されない） ---
-            st.session_state.ws_active = False # 受信機を一度リセット
-            st.rerun()
-    else:
-        st.error("ルームIDを入力してください。")
+                    st.rerun()
+            else:
+                st.error("ルームIDを入力してください。")
 
 if st.button("トラッキング停止", key="stop_button", disabled=not st.session_state.is_tracking):
     if st.session_state.is_tracking:
@@ -527,49 +574,66 @@ if st.session_state.is_tracking:
     onlives_data = get_onlives_rooms()
     target_room_info = onlives_data.get(int(st.session_state.room_id)) if st.session_state.room_id.isdigit() else None
 
-    # --- 配信終了検知と自動保存処理 ---
-    is_live_now = int(st.session_state.room_id) in onlives_data
+        # --- 配信終了検知と自動保存処理 ---
+        is_live_now = int(st.session_state.room_id) in onlives_data
 
-    if not is_live_now:
-        st.warning("📡 配信が終了しました。ログを自動保存します。")
+        if not is_live_now:
+            st.warning("📡 配信が終了しました。全ログを最終保存します。")
 
-        # コメントログ保存
-        if st.session_state.comment_log:
-            comment_df = pd.DataFrame([
-                {
-                    "コメント時間": datetime.datetime.fromtimestamp(log.get("created_at", 0), JST).strftime("%Y-%m-%d %H:%M:%S"),
-                    "ユーザー名": log.get("name", ""),
-                    "コメント内容": log.get("comment", ""),
-                    "ユーザーID": log.get("user_id", "")
-                }
-                for log in st.session_state.comment_log
-                if not any(keyword in log.get("name", "") or keyword in log.get("comment", "") for keyword in SYSTEM_COMMENT_KEYWORDS)
-            ])
-            buf = io.BytesIO()
-            comment_df.to_csv(buf, index=False, encoding="utf-8-sig")
-            upload_csv_to_ftp(f"comment_log_{st.session_state.room_id}_{datetime.datetime.now(JST).strftime('%Y%m%d_%H%M%S')}.csv", buf)
+            # 1. コメントログ保存
+            if st.session_state.comment_log:
+                comment_df = pd.DataFrame([
+                    {
+                        "コメント時間": datetime.datetime.fromtimestamp(log.get("created_at", 0), JST).strftime("%Y-%m-%d %H:%M:%S"),
+                        "ユーザー名": log.get("name", ""),
+                        "コメント内容": log.get("comment", ""),
+                        "ユーザーID": log.get("user_id", "")
+                    }
+                    for log in st.session_state.comment_log
+                    if not any(keyword in log.get("name", "") or keyword in log.get("comment", "") for keyword in SYSTEM_COMMENT_KEYWORDS)
+                ])
+                buf = io.BytesIO()
+                comment_df.to_csv(buf, index=False, encoding="utf-8-sig")
+                upload_csv_to_ftp(f"comment_log_{st.session_state.room_id}_{datetime.datetime.now(JST).strftime('%Y%m%d_%H%M%S')}.csv", buf)
 
-        # ギフトログ保存
-        if st.session_state.gift_log:
-            gift_df = pd.DataFrame([
-                {
-                    "ギフト時間": datetime.datetime.fromtimestamp(log.get("created_at", 0), JST).strftime("%Y-%m-%d %H:%M:%S"),
-                    "ユーザー名": log.get("name", ""),
-                    "ギフト名": st.session_state.gift_list_map.get(str(log.get("gift_id")), {}).get("name", ""),
-                    "個数": log.get("num", ""),
-                    "ポイント": st.session_state.gift_list_map.get(str(log.get("gift_id")), {}).get("point", 0),
-                    "ユーザーID": log.get("user_id", "")
-                }
-                for log in st.session_state.gift_log
-            ])
-            buf = io.BytesIO()
-            gift_df.to_csv(buf, index=False, encoding="utf-8-sig")
-            upload_csv_to_ftp(f"gift_log_{st.session_state.room_id}_{datetime.datetime.now(JST).strftime('%Y%m%d_%H%M%S')}.csv", buf)
+            # 2. 有償ギフトログ保存
+            if st.session_state.gift_log:
+                gift_df = pd.DataFrame([
+                    {
+                        "ギフト時間": datetime.datetime.fromtimestamp(log.get("created_at", 0), JST).strftime("%Y-%m-%d %H:%M:%S"),
+                        "ユーザー名": log.get("name", ""),
+                        "ギフト名": st.session_state.gift_list_map.get(str(log.get("gift_id")), {}).get("name", ""),
+                        "個数": log.get("num", ""),
+                        "ポイント": st.session_state.gift_list_map.get(str(log.get("gift_id")), {}).get("point", 0),
+                        "ユーザーID": log.get("user_id", "")
+                    }
+                    for log in st.session_state.gift_log
+                ])
+                buf = io.BytesIO()
+                gift_df.to_csv(buf, index=False, encoding="utf-8-sig")
+                upload_csv_to_ftp(f"gift_log_{st.session_state.room_id}_{datetime.datetime.now(JST).strftime('%Y%m%d_%H%M%S')}.csv", buf)
 
-        # 状態変更とリロード
-        st.session_state.is_tracking = False
-        st.info("✅ 配信終了を検知し、自動保存・トラッキング停止しました。")
-        st.rerun()
+            # 3. 無償ギフトログ保存（追加分）
+            if st.session_state.free_gift_log:
+                free_gift_df = pd.DataFrame([
+                    {
+                        "ギフト時間": datetime.datetime.fromtimestamp(log.get("created_at", 0), JST).strftime("%Y-%m-%d %H:%M:%S"),
+                        "ユーザー名": log.get("name", ""),
+                        "ギフト名": log.get("gift_name", ""),
+                        "個数": log.get("num", ""),
+                        "ポイント": log.get("point", 0),
+                        "ユーザーID": log.get("user_id", "")
+                    }
+                    for log in st.session_state.free_gift_log
+                ])
+                buf = io.BytesIO()
+                free_gift_df.to_csv(buf, index=False, encoding="utf-8-sig")
+                upload_csv_to_ftp(f"free_gift_log_{st.session_state.room_id}_{datetime.datetime.now(JST).strftime('%Y%m%d_%H%M%S')}.csv", buf)
+
+            # 状態変更とリロード
+            st.session_state.is_tracking = False
+            st.info("✅ 配信終了を検知し、すべてのログを保存しました。トラッキングを停止します。")
+            st.rerun()
 
 
     if target_room_info:
@@ -664,99 +728,71 @@ if st.session_state.is_tracking:
         st.session_state.fan_list = fan_list
         st.session_state.total_fan_count = total_fan_count
 
-
-        import websocket
-        import json
-        import time
-        import requests
-        import streamlit as st
-
-        # --- 1. 接続情報の取得 ---
-        def get_ws_info(room_id):
-            try:
-                res = requests.get(f"https://www.showroom-live.com/api/live/live_info?room_id={room_id}", timeout=5).json()
-                return res.get("bcsvr_host"), res.get("bcsvr_port"), res.get("bcsvr_key")
-            except:
-                return None, None, None
-
-        # --- 2. 5秒間だけ直接パケットをキャッチする関数 ---
-        def capture_gifts_direct(host, port, key):
-            captured = []
-            ws_url = f"wss://{host}/" if str(port) == "443" else f"ws://{host}:{port}/"
+        # --- 無償ギフト生データの処理 (キューからログへ変換) ---
+        if st.session_state.get("raw_free_gift_queue"):
+            current_queue = st.session_state.raw_free_gift_queue[:]
+            st.session_state.raw_free_gift_queue = []
             
-            try:
-                ws = websocket.create_connection(ws_url, timeout=5)
-                ws.send(f"SUB\t{key}\n")
-                
-                # 5秒間だけループしてパケットを読み取る
-                start_time = time.time()
-                while time.time() - start_time < 5:
-                    message = ws.recv()
-                    msg_str = message.decode('utf-8', errors='ignore') if isinstance(message, bytes) else str(message)
+            for raw_data in current_queue:
+                gift_id = raw_data.get("g")
+                if gift_id in st.session_state.free_gift_master:
+                    master = st.session_state.free_gift_master[gift_id]
                     
-                    if msg_str.startswith("ACK\t"):
-                        ws.send(f"{msg_str}\n")
-                        continue
-                    
-                    start_ptr = msg_str.find('{')
-                    if start_ptr != -1:
-                        data = json.loads(msg_str[start_ptr:])
-                        items = data if isinstance(data, list) else [data]
-                        for d in items:
-                            # あなたの解析通り "g" を確認
-                            if d.get("g"):
-                                captured.append({
-                                    "time": time.strftime("%H:%M:%S"),
-                                    "user": d.get("ac", "不明"),
-                                    "gift_id": d.get("g"),
-                                    "num": d.get("n", 1),
-                                    "is_free": (d.get("gt") == 2)
-                                })
-                ws.close()
-            except Exception as e:
-                st.error(f"接続エラー: {e}")
+                    new_entry = {
+                        "created_at": raw_data.get("created_at"),
+                        "user_id": raw_data.get("u"),
+                        "name": raw_data.get("ac"), # 既存のキー名'name'に合わせる
+                        "avatar_id": raw_data.get("av"),
+                        "gift_id": gift_id,
+                        "gift_name": master["name"],
+                        "point": master["point"],
+                        "num": raw_data.get("n"),
+                        "image": master["image"]
+                    }
+                    # 重複チェック
+                    is_duplicate = any(
+                        l["created_at"] == new_entry["created_at"] and 
+                        l["user_id"] == new_entry["user_id"] and 
+                        l["gift_id"] == new_entry["gift_id"]
+                        for l in st.session_state.free_gift_log[-20:]
+                    )
+                    if not is_duplicate:
+                        st.session_state.free_gift_log.append(new_entry)
             
-            return captured
+            # 新しい順にソート
+            st.session_state.free_gift_log.sort(key=lambda x: x["created_at"], reverse=True)
 
-        # --- 3. メイン表示 ---
-        st.title("🌟 無償ギフト直接検知テスト")
+        # --- 無償ギフトログ自動保存 (100件ごと) ---
+        prev_free_gift_count = st.session_state.get("prev_free_gift_count", 0)
+        current_free_gift_count = len(st.session_state.free_gift_log)
+        next_free_save_threshold = math.ceil((prev_free_gift_count + 1) / 100) * 100
 
-        # セッション状態でのログ保持
-        if "DIRECT_LOG" not in st.session_state:
-            st.session_state.DIRECT_LOG = []
-
-        rid = st.session_state.get("room_id", "336836") # 例として
-        h, p, k = get_ws_info(rid)
-
-        if h and k:
-            st.write(f"📡 現在 5秒間 のパケットを直接スキャン中... ({h})")
-            new_data = capture_gifts_direct(h, p, k)
-            
-            if new_data:
-                # 重複を避ける処理は一旦置いといて追加
-                st.session_state.DIRECT_LOG = new_data + st.session_state.DIRECT_LOG
-                st.session_state.DIRECT_LOG = st.session_state.DIRECT_LOG[:50] # 最大50件
-
-        # 表示
-        with st.container(border=True):
-            if st.session_state.DIRECT_LOG:
-                for item in st.session_state.DIRECT_LOG:
-                    img = f"https://static.showroom-live.com/image/gift/{item['gift_id']}_s.png"
-                    st.markdown(f"**{item['time']}** <img src='{img}' width='20'> {item['user']} ×{item['num']} {'(無償)' if item['is_free'] else ''}", unsafe_allow_html=True)
-            else:
-                st.info("この5秒間には星・種は流れませんでした。自動更新をお待ちください。")
-
-        # 既存のリフレッシュ機能があるとのことですので、そのまま連動するはずです。
-
-
+        if current_free_gift_count >= next_free_save_threshold:
+            if current_free_gift_count > 0:
+                free_gift_df = pd.DataFrame([
+                    {
+                        "ギフト時間": datetime.datetime.fromtimestamp(log.get("created_at", 0), JST).strftime("%Y-%m-%d %H:%M:%S"),
+                        "ユーザー名": log.get("name", ""),
+                        "ギフト名": log.get("gift_name", ""),
+                        "個数": log.get("num", ""),
+                        "ポイント": log.get("point", 0),
+                        "ユーザーID": log.get("user_id", "")
+                    }
+                    for log in st.session_state.free_gift_log
+                ])
+                buf = io.BytesIO()
+                free_gift_df.to_csv(buf, index=False, encoding="utf-8-sig")
+                upload_csv_to_ftp(f"free_gift_log_{st.session_state.room_id}_{datetime.datetime.now(JST).strftime('%Y%m%d_%H%M%S')}.csv", buf)
+                st.session_state.prev_free_gift_count = next_free_save_threshold
 
         st.markdown("---")
         st.markdown("<h2 style='font-size:2em;'>📊 リアルタイムダッシュボード</h2>", unsafe_allow_html=True)
         st.markdown(f"**最終更新日時 (日本時間): {datetime.datetime.now(JST).strftime('%Y-%m-%d %H:%M:%S')}**")
         st.markdown(f"<p style='font-size:12px; color:#a1a1a1;'>※約10秒ごとに自動更新されます。</p>", unsafe_allow_html=True)
 
-        # col_comment, col_gift, col_fan = st.columns(3)
-        col_comment, col_gift, col_free_gift, col_fan = st.columns(4)
+        # カラムを4つに分割
+        col_comment, col_free_gift, col_gift, col_fan = st.columns(4)
+
         with col_comment:
             st.markdown("### 📝 コメント")
             with st.container(border=True, height=500):
@@ -786,8 +822,42 @@ if st.session_state.is_tracking:
                         st.markdown(html, unsafe_allow_html=True)
                 else:
                     st.info("コメントがありません。")
+
+        with col_free_gift:
+            st.markdown("### 🎈 無償ギフト")
+            with st.container(border=True, height=500):
+                if st.session_state.free_gift_log:
+                    for log in st.session_state.free_gift_log:
+                        user_name = log.get('name', '匿名ユーザー')
+                        created_at = datetime.datetime.fromtimestamp(log.get('created_at', 0), JST).strftime("%H:%M:%S")
+                        gift_name = log.get('gift_name', '不明なギフト')
+                        gift_count = log.get('num', 0)
+                        gift_image_url = log.get('image', '')
+                        avatar_id = log.get('avatar_id', None)
+                        avatar_url = f"https://static.showroom-live.com/image/avatar/{avatar_id}.png" if avatar_id else DEFAULT_AVATAR
+                        
+                        html = f"""
+                        <div class="gift-item">
+                            <div class="gift-item-row">
+                                <img src="{avatar_url}" class="gift-avatar" />
+                                <div class="gift-content">
+                                    <div class="gift-time">{created_at}</div>
+                                    <div class="gift-user">{user_name}</div>
+                                    <div class="gift-info-row">
+                                        <img src="{gift_image_url}" class="gift-image" />
+                                        <span>{gift_name} ×{gift_count}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <hr style="border: none; border-top: 1px solid #eee; margin: 8px 0;">
+                        """
+                        st.markdown(html, unsafe_allow_html=True)
+                else:
+                    st.info("無償ギフトはまだありません。")
+
         with col_gift:
-            st.markdown("### 🎁 スペシャルギフト")
+            st.markdown("### 🎁 スペシャル")
             with st.container(border=True, height=500):
                 if st.session_state.gift_log and st.session_state.gift_list_map:
                     for log in st.session_state.gift_log:
@@ -799,15 +869,18 @@ if st.session_state.is_tracking:
                         gift_point = gift_info.get('point', 0)
                         gift_count = log.get('num', 0)
                         total_point = gift_point * gift_count
+                        
                         highlight_class = ""
                         if total_point >= 300000: highlight_class = "highlight-300000"
                         elif total_point >= 100000: highlight_class = "highlight-100000"
                         elif total_point >= 60000: highlight_class = "highlight-60000"
                         elif total_point >= 30000: highlight_class = "highlight-30000"
                         elif total_point >= 10000: highlight_class = "highlight-10000"
+                        
                         gift_image_url = log.get('image', gift_info.get('image', ''))
                         avatar_id = log.get('avatar_id', None)
                         avatar_url = f"https://static.showroom-live.com/image/avatar/{avatar_id}.png" if avatar_id else DEFAULT_AVATAR
+                        
                         html = f"""
                         <div class="gift-item {highlight_class}">
                             <div class="gift-item-row">
@@ -828,33 +901,6 @@ if st.session_state.is_tracking:
                         st.markdown(html, unsafe_allow_html=True)
                 else:
                     st.info("ギフトがありません。")
-
-        with col_free_gift:
-            st.markdown("### 🌟 無償ギフト")
-            
-            # 物理メモリ(globals)から直接リストを取得
-            # これが st.session_state よりも確実にデータを保持します
-            logs = globals().get('FINAL_LOG', [])
-            
-            st.caption(f"📡 受信ログ: {len(logs)}件")
-
-            with st.container(border=True, height=500):
-                if logs:
-                    # ログが1件でもあれば、スクショの青い枠は消えます
-                    for g in logs:
-                        img_url = f"https://static.showroom-live.com/image/gift/{g['gift_id']}_s.png"
-                        st.markdown(f"""
-                        <div style="display:flex; align-items:center; margin-bottom:10px; border-bottom:1px solid #eee; padding-bottom:5px;">
-                            <img src="{img_url}" width="25" style="margin-right:12px;">
-                            <div style="line-height:1.2;">
-                                <div style="font-size:0.9em; font-weight:bold;">{g['name']}</div>
-                                <div style="font-size:0.8em; color:gray;">×{g['num']}</div>
-                            </div>
-                        </div>
-                        """, unsafe_allow_html=True)
-                else:
-                    # 0件の時だけスクショの青い枠を表示
-                    st.info("待機中... (自動更新をお待ちください)")
 
         with col_fan:
             st.markdown("### 🏆 ファンリスト")
