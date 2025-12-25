@@ -665,6 +665,7 @@ if st.session_state.is_tracking:
         st.session_state.total_fan_count = total_fan_count
 
 
+# --- 無償ギフト表示セクション（修正版全量） ---
         import websocket
         import json
         import threading
@@ -677,113 +678,72 @@ if st.session_state.is_tracking:
             globals()['FINAL_LOG'] = []
         if 'FINAL_WS_RUNNING' not in globals():
             globals()['FINAL_WS_RUNNING'] = False
-        if 'WS_INSTANCE' not in globals():
-            globals()['WS_INSTANCE'] = None
 
         def ws_engine_core(rid, host, port, key):
-            log_ptr = globals().get('FINAL_LOG')
-            if log_ptr is None: return
-
             def on_message(ws, message):
                 try:
-                    # 1. データのデコード（バイナリ対策）
                     msg_str = message.decode('utf-8') if isinstance(message, bytes) else str(message)
-
-                    # 🔑 サーバーからの認証要求(ACK)には最優先で応答する
+                    # 🔑 サーバーからの認証要求(ACK)に応答
                     if msg_str.startswith("ACK\t"):
                         ws.send(f"{msg_str}\n".encode('utf-8'))
                         return
 
-                    # 2. JSON解析
                     data = json.loads(msg_str)
-                    current_box = globals().get('FINAL_LOG')
-                    if current_box is None: return
-
-                    # SHOWROOMは1つのメッセージに複数のパケットを配列で入れてくる
                     items_to_process = data if isinstance(data, list) else [data]
 
                     for d in items_to_process:
-                        # --- 無償ギフトの網を最大まで広げる ---
-                        # 判定①: ポイントが「0」であること
-                        # 判定②: ギフトIDが存在すること
-                        # 判定③: メッセージ種別がギフト送信関連であること
                         p_val = str(d.get("p", "-1"))
                         g_id = d.get("g_id")
-                        msg_type = d.get("t")
-
+                        # 無償ギフト判定
                         if (p_val == "0" or d.get("gift_type") == 1) and g_id:
                             item = {
                                 "name": d.get("u_name", "不明"),
                                 "gift_id": g_id,
                                 "num": d.get("n", 1)
                             }
-                            current_box.insert(0, item)
-                            
-                            # ログ上限設定
-                            if len(current_box) > 50:
-                                current_box.pop()
-
-                except Exception:
-                    # 予期せぬエラーでスレッドを止めない
+                            # globalsのリストに直接追加
+                            globals()['FINAL_LOG'].insert(0, item)
+                            if len(globals()['FINAL_LOG']) > 50:
+                                globals()['FINAL_LOG'].pop()
+                except:
                     pass
 
             def on_open(ws):
-                # SUBコマンド送信
                 ws.send(f"SUB\t{key}\n".encode('utf-8'))
 
-            # wsプロトコルと8080ポートの組み合わせ
             ws_url = f"ws://{host}:{port}/"
-            ws = websocket.WebSocketApp(
-                ws_url, 
-                on_message=on_message, 
-                on_open=on_open
-            )
-            
+            ws = websocket.WebSocketApp(ws_url, on_message=on_message, on_open=on_open)
             globals()['FINAL_WS_RUNNING'] = True
             ws.run_forever(ping_interval=20, ping_timeout=10)
             globals()['FINAL_WS_RUNNING'] = False
 
-
-        # 2. 実行制御（多重起動を絶対に防ぐ）
+        # 2. 実行制御
         target_rid = st.session_state.get("room_id")
+        if target_rid and not globals().get('FINAL_WS_RUNNING'):
+            curr_host = st.session_state.get("bcsvr_host")
+            curr_port = st.session_state.get("bcsvr_port")
+            curr_key = st.session_state.get("bcsvr_key")
 
-        if target_rid:
-            # APIから最新の接続情報を取得
-            if not st.session_state.get("bcsvr_host"):
-                try:
-                    res = requests.get(f"https://www.showroom-live.com/api/live/live_info?room_id={target_rid}").json()
-                    st.session_state.bcsvr_host = res.get("bcsvr_host")
-                    st.session_state.bcsvr_port = res.get("bcsvr_port")
-                    st.session_state.bcsvr_key = res.get("bcsvr_key")
-                except: pass
+            if curr_host and curr_key:
+                t = threading.Thread(
+                    target=ws_engine_core, 
+                    args=(str(target_rid), str(curr_host), str(curr_port), str(curr_key)),
+                    daemon=True
+                )
+                t.start()
+                time.sleep(0.5)
 
-            # 現在動いていない場合のみ、新しくスレッドを立てる
-            if not globals().get('FINAL_WS_RUNNING'):
-                curr_host = st.session_state.get("bcsvr_host")
-                curr_port = st.session_state.get("bcsvr_port")
-                curr_key = st.session_state.get("bcsvr_key")
-
-                if curr_host and curr_key:
-                    t = threading.Thread(
-                        target=ws_engine_core, 
-                        args=(str(target_rid), str(curr_host), str(curr_port), str(curr_key)),
-                        daemon=True
-                    )
-                    t.start()
-                    # 接続直後は少し待機して安定させる
-                    time.sleep(1)
-
-        # 3. 表示
-        st.session_state.free_gift_log = list(globals().get('FINAL_LOG', []))
+        # 3. 表示処理（リセットを防ぐため変数にコピーして使用）
+        display_log = list(globals().get('FINAL_LOG', []))
 
         st.markdown("### 🌟 無償ギフト")
-        is_active = globals()['FINAL_WS_RUNNING']
+        is_active = globals().get('FINAL_WS_RUNNING', False)
         status_col = "green" if is_active else "red"
         st.markdown(f"📡 ステータス: <span style='color:{status_col};'>{'✅ 稼働中' if is_active else '❌ 停止'}</span> | 接続先: {st.session_state.get('bcsvr_host')}:{st.session_state.get('bcsvr_port')}", unsafe_allow_html=True)
 
         with st.container(border=True, height=500):
-            if st.session_state.free_gift_log:
-                for log in st.session_state.free_gift_log:
+            if display_log:
+                for log in display_log:
                     img_url = f"https://static.showroom-live.com/image/gift/{log['gift_id']}_s.png"
                     st.markdown(f"<div><img src='{img_url}' width='25'> <b>{log.get('name')}</b> ×{log.get('num')}</div>", unsafe_allow_html=True)
             else:
