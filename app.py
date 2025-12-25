@@ -245,8 +245,10 @@ CSS_STYLE = """
     color: #333333;
     padding: 1rem;
     border-left: 5px solid #4CAF50;
-    margin-bottom: -36px !important;
+    margin-bottom: 5px !important;
+/*    margin-bottom: -36px !important;*/
     margin-top: 0 !important;
+    position: relative; /* 他の要素に埋もれないようにします */
 }
 </style>
 """
