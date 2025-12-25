@@ -543,7 +543,7 @@ if st.button("トラッキング開始", key="start_button"):
                     except:
                         pass
                 
-# 4. 無償ギフト受信機（WebSocket）をバックグラウンドで起動
+                # 4. 無償ギフト受信機（WebSocket）をバックグラウンドで起動
                 # 引数名を free_gift_handler.py の定義（host, key）に合わせて修正します
                 receiver = FreeGiftReceiver(
                     room_id=input_room_id,
@@ -760,8 +760,8 @@ if st.session_state.is_tracking:
                 st.session_state.free_gift_log.insert(0, new_entry)
                 
                 # ログが溜まりすぎないよう制限（直近100件までなど）
-                if len(st.session_state.free_gift_log) > 100:
-                    st.session_state.free_gift_log = st.session_state.free_gift_log[:100]
+                # if len(st.session_state.free_gift_log) > 100:
+                #     st.session_state.free_gift_log = st.session_state.free_gift_log[:100]
                     
             except Exception as e:
                 break
@@ -808,7 +808,9 @@ if st.session_state.is_tracking:
                     if not any(keyword in log.get('name', '') or keyword in log.get('comment', '') for keyword in SYSTEM_COMMENT_KEYWORDS)
                 ]
                 if filtered_comments:
-                    for log in filtered_comments:
+                    # 💡 表示制限コントロール (制限したい場合は [:100] を有効にする)
+                    display_comments = filtered_comments # [:100]
+                    for log in display_comments:
                         user_name = log.get('name', '匿名ユーザー')
                         comment_text = log.get('comment', '')
                         created_at = datetime.datetime.fromtimestamp(log.get('created_at', 0), JST).strftime("%H:%M:%S")
@@ -834,7 +836,9 @@ if st.session_state.is_tracking:
             st.markdown("#### 🎁 スペシャルギフト")
             with st.container(border=True, height=500):
                 if st.session_state.gift_log and st.session_state.gift_list_map:
-                    for log in st.session_state.gift_log:
+                    # 💡 表示制限コントロール
+                    display_gifts = st.session_state.gift_log # [:100]
+                    for log in display_gifts:
                         gift_info = st.session_state.gift_list_map.get(str(log.get('gift_id')), {})
                         if not gift_info:
                             continue
@@ -880,7 +884,9 @@ if st.session_state.is_tracking:
             st.markdown("#### 🎈 無償ギフト")
             with st.container(border=True, height=500):
                 if st.session_state.free_gift_log:
-                    for log in st.session_state.free_gift_log:
+                    # 💡 表示制限コントロール
+                    display_free_gifts = st.session_state.free_gift_log # [:100]
+                    for log in display_free_gifts:
                         user_name = log.get('name', '匿名ユーザー')
                         created_at = datetime.datetime.fromtimestamp(log.get('created_at', 0), JST).strftime("%H:%M:%S")
                         gift_count = log.get('num', 0)
@@ -915,7 +921,9 @@ if st.session_state.is_tracking:
             st.markdown("#### 🏆 ファンリスト")
             with st.container(border=True, height=500):
                 if st.session_state.fan_list:
-                    for fan in st.session_state.fan_list:
+                    # 💡 表示制限コントロール
+                    display_fans = st.session_state.fan_list # [:100]
+                    for fan in display_fans:
                         html = f"""
                         <div class="fan-item">
                             <div class="fan-info-row">
