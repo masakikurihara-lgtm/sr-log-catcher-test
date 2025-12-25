@@ -530,31 +530,29 @@ if st.button("トラッキング開始", key="start_button"):
             st.session_state.raw_free_gift_queue = []
             
             # 1. 無償ギフトマスター（名前・画像・ポイント）の取得
-            # update_free_gift_master(input_room_id) # ←ここもエラーになる場合はコメントアウトしてください
+            update_free_gift_master(input_room_id) # ← コメント解除
             
-            # 2. WebSocket接続情報の取得 (未定義のためコメントアウト)
-            # streaming_info = get_streaming_server_info(input_room_id)
+            # 2. WebSocket接続情報の取得
+            streaming_info = get_streaming_server_info(input_room_id) # ← コメント解除
             
-            # ▼▼▼ 修正箇所：ここから下をすべて無効化または削除します ▼▼▼
-            # if streaming_info:
-            #     # 3. 既存の受信機が動いていれば停止
-            #     if st.session_state.get("ws_receiver"):
-            #         try:
-            #             st.session_state.ws_receiver.stop()
-            #         except:
-            #             pass
-            #
-            #     # 4. 無償ギフト受信機（WebSocket）をバックグラウンドで起動
-            #     receiver = FreeGiftReceiver(
-            #         room_id=input_room_id,
-            #         bcsvr_host=streaming_info["host"],
-            #         bcsvr_key=streaming_info["key"]
-            #     )
-            #     receiver.start()
-            #     st.session_state.ws_receiver = receiver
-            # else:
-            #     st.warning("配信サーバー情報の取得に失敗したため、無償ギフトのリアルタイム取得はスキップされます。")
-            # ▲▲▲ 修正箇所：ここまで ▲▲▲
+            if streaming_info:
+                # 3. 既存の受信機が動いていれば停止
+                if st.session_state.get("ws_receiver"):
+                    try:
+                        st.session_state.ws_receiver.stop()
+                    except:
+                        pass
+                
+                # 4. 無償ギフト受信機（WebSocket）をバックグラウンドで起動
+                receiver = FreeGiftReceiver(
+                    room_id=input_room_id,
+                    bcsvr_host=streaming_info["host"],
+                    bcsvr_key=streaming_info["key"]
+                )
+                receiver.start()
+                st.session_state.ws_receiver = receiver
+            else:
+                st.warning("配信サーバー情報の取得に失敗したため、無償ギフトのリアルタイム取得はスキップされます。")
 
             st.rerun()
     else:
