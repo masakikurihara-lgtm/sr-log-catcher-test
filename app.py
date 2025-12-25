@@ -533,7 +533,7 @@ if st.button("トラッキング開始", key="start_button"):
                     update_free_gift_master(input_room_id)
                     
                     # 2. WebSocket接続情報の取得
-                    streaming_info = get_streaming_server_info(input_room_id)
+                    # streaming_info = get_streaming_server_info(input_room_id)
                     
                     if streaming_info:
                         # 3. 既存の受信機が動いていれば停止
