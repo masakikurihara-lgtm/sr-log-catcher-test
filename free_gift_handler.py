@@ -51,3 +51,40 @@ class FreeGiftReceiver:
         if self.ws:
             self.ws.close()
             self.is_running = False
+
+
+# --- free_gift_handler.py の末尾に追加 ---
+
+def get_streaming_server_info(room_id):
+    """配信サーバーのホストとキーを取得する"""
+    import requests
+    try:
+        res = requests.get(f"https://www.showroom-live.com/api/live/streaming_server?room_id={room_id}", timeout=5).json()
+        if "streaming_url_list" in res and res["streaming_url_list"]:
+            # 最初の配信サーバー情報を返す
+            server = res["streaming_url_list"][0]
+            return {"host": server["host"], "key": server["key"]}
+    except Exception as e:
+        print(f"Error fetching streaming info: {e}")
+    return None
+
+def update_free_gift_master(room_id):
+    """無償ギフト（星・種）の情報を取得してsession_stateに保存する"""
+    import requests
+    import streamlit as st
+    try:
+        res = requests.get(f"https://www.showroom-live.com/api/live/gift_list?room_id={room_id}", timeout=5).json()
+        master = {}
+        # en_jpの中に無償ギフト(type=1)が含まれていることが多い
+        for category in res.get("en_jp", []):
+            for gift in category.get("list", []):
+                if gift.get("is_not_free") == False: # 無償ギフトのみ
+                    master[gift["gift_id"]] = {
+                        "name": gift["gift_name"],
+                        "image": gift["image"],
+                        "point": gift["free_num_2020"] # 無償ギフトのポイント(通常1)
+                    }
+        st.session_state.free_gift_master = master
+    except Exception as e:
+        st.session_state.free_gift_master = {}
+        print(f"Error updating gift master: {e}")
