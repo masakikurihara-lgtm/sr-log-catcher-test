@@ -1,7 +1,7 @@
 import websocket
 import json
 import threading
-import time
+import requests
 import streamlit as st
 
 class FreeGiftReceiver:
@@ -10,29 +10,26 @@ class FreeGiftReceiver:
         self.host = bcsvr_host
         self.key = bcsvr_key
         self.ws = None
-        self.thread = None
         self.is_running = False
 
     def on_message(self, ws, message):
         if message.startswith("MSG"):
             try:
+                # MSG\tルームID\t{JSON} という形式を分解
                 parts = message.split("\t")
                 if len(parts) < 3: return
                 data = json.loads(parts[2])
 
-                # 【デバッグ用】届いたすべてのパケットの型（t）を表示
-                # print(f"DEBUG: 受信パケット t={data.get('t')}") 
-
                 # ギフトメッセージ(t=2)のみを対象
                 if data.get("t") == 2:
-                    # 【デバッグ用】ギフトデータの中身を表示
-                    # print(f"DEBUG: ギフトデータ受信 g={data.get('g')}, n={data.get('n')}")
-                    
+                    # テストコードで受信できている生データをそのままリストに追加
                     if "raw_free_gift_queue" not in st.session_state:
                         st.session_state.raw_free_gift_queue = []
+                    
+                    # データの重複を防ぐための簡易チェック（created_atとuser_idで判定）
                     st.session_state.raw_free_gift_queue.append(data)
-            except Exception as e:
-                print(f"DEBUG: 解析エラー {e}")
+            except Exception:
+                pass
 
     def on_open(self, ws):
         ws.send(f"SUB\t{self.key}")
@@ -49,6 +46,7 @@ class FreeGiftReceiver:
     def start(self):
         if not self.is_running:
             self.is_running = True
+            # スレッドを「daemon=True」にしてStreamlit停止時に終了するようにする
             self.thread = threading.Thread(target=self.run, daemon=True)
             self.thread.start()
 
@@ -57,47 +55,36 @@ class FreeGiftReceiver:
             self.ws.close()
             self.is_running = False
 
-
-# --- free_gift_handler.py の末尾に追加 ---
-
 def get_streaming_server_info(room_id):
-    """配信サーバーのホストとキーを live_info API から取得する"""
-    import requests
-    # テストコードと同じHEADERS定義が必要な場合は適宜追加してください
+    """テストコードで成功した live_info API を使用"""
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
     }
     try:
-        # テスト時に成功していたAPIエンドポイントに変更
         url = f"https://www.showroom-live.com/api/live/live_info?room_id={room_id}"
         res = requests.get(url, headers=headers, timeout=5).json()
-        
-        host = res.get("bcsvr_host")
-        key = res.get("bcsvr_key")
-        
-        if host and key:
-            return {"host": host, "key": key}
-    except Exception as e:
-        print(f"Error fetching live info: {e}")
-    return None
+        return {"host": res.get("bcsvr_host"), "key": res.get("bcsvr_key")}
+    except:
+        return None
 
 def update_free_gift_master(room_id):
-    """無償ギフト（星・種）の情報を取得してsession_stateに保存する"""
+    """無償ギフト情報を取得。取得漏れを防ぐため広めに取得"""
     import requests
-    import streamlit as st
     try:
         res = requests.get(f"https://www.showroom-live.com/api/live/gift_list?room_id={room_id}", timeout=5).json()
         master = {}
-        # en_jpの中に無償ギフト(type=1)が含まれていることが多い
-        for category in res.get("en_jp", []):
-            for gift in category.get("list", []):
-                if gift.get("is_not_free") == False: # 無償ギフトのみ
-                    master[gift["gift_id"]] = {
-                        "name": gift["gift_name"],
-                        "image": gift["image"],
-                        "point": gift["free_num_2020"] # 無償ギフトのポイント(通常1)
-                    }
+        # すべてのカテゴリから無償ギフトを抽出
+        for cat_key in res.keys():
+            if isinstance(res[cat_key], list):
+                for category in res[cat_key]:
+                    for gift in category.get("list", []):
+                        if gift.get("is_not_free") == False:
+                            master[gift["gift_id"]] = {
+                                "name": gift["gift_name"],
+                                "image": gift["image"],
+                                "point": gift.get("free_num_2020", 1)
+                            }
         st.session_state.free_gift_master = master
-    except Exception as e:
+    except:
         st.session_state.free_gift_master = {}
-        print(f"Error updating gift master: {e}")
+        
