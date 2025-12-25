@@ -672,55 +672,61 @@ if st.session_state.is_tracking:
         import requests
         import streamlit as st
 
-        # 1. データ管理（コメント欄と同じ仕組みで星を拾う）
-        if 'STAR_LOG' not in globals():
-            globals()['STAR_LOG'] = []
-        if 'WS_STAR_THREAD' not in globals():
-            globals()['WS_STAR_THREAD'] = None
+        # 1. データの保管場所（ここだけは絶対にglobalsで保持）
+        if 'FINAL_GIFT_LOG' not in globals():
+            globals()['FINAL_GIFT_LOG'] = []
+        if 'WS_ACTIVE_THREAD' not in globals():
+            globals()['WS_ACTIVE_THREAD'] = None
 
-        def ws_star_engine(rid, host, port, key):
+        def ws_engine_fix(rid, host, port, key):
             def on_message(ws, message):
                 try:
-                    msg_str = message.decode('utf-8') if isinstance(message, bytes) else str(message)
+                    # メッセージをテキスト化
+                    msg_str = message.decode('utf-8', errors='ignore') if isinstance(message, bytes) else str(message)
+                    
+                    # 🔑 生存確認応答
                     if msg_str.startswith("ACK\t"):
                         ws.send(f"{msg_str}\n".encode('utf-8'))
                         return
 
-                    data = json.loads(msg_str)
+                    # 【重要】Firefoxの画像から判明したヘッダー除去ロジック
+                    # "MSG 数字:{" のようになっているので、最初の "{" 以降だけを使う
+                    start_ptr = msg_str.find('{')
+                    if start_ptr == -1: return
+                    
+                    payload = msg_str[start_ptr:]
+                    data = json.loads(payload)
                     items = data if isinstance(data, list) else [data]
                     
                     for d in items:
-                        # SHOWROOMのパケット構造: 
-                        # 通常の星投げは 't' (type) が '1' (コメント) ではなく、
-                        # かといって 'gift_log' にも載らない場合、
-                        # パケット内の 'g_id' または 'gt' (gift_type) を直接見ます。
-                        
+                        # 無償・有償問わず g_id があればギフトとして記録
                         g_id = d.get("g_id")
-                        # 無償ギフト(星・種)は一般的に gift_type が 1 または 2、ポイント(p)が 0
-                        if g_id and (str(d.get("p")) == "0" or d.get("gt") in [1, 2]):
-                            new_star = {
+                        if g_id:
+                            new_item = {
                                 "name": d.get("u_name", "不明"),
                                 "gift_id": g_id,
                                 "num": d.get("n", 1),
+                                "pts": d.get("p", 0),
                                 "time": time.strftime("%H:%M:%S", time.localtime())
                             }
-                            globals()['STAR_LOG'].insert(0, new_star)
-                            if len(globals()['STAR_LOG']) > 50:
-                                globals()['STAR_LOG'].pop()
+                            globals()['FINAL_GIFT_LOG'].insert(0, new_item)
+                            if len(globals()['FINAL_GIFT_LOG']) > 50:
+                                globals()['FINAL_GIFT_LOG'].pop()
                 except:
                     pass
 
             def on_open(ws):
                 ws.send(f"SUB\t{key}\n".encode('utf-8'))
 
-            ws_url = f"ws://{host}:{port}/"
+            # ポート443(WSS)か8080(WS)かを自動判別
+            ws_url = f"wss://{host}/" if str(port) == "443" else f"ws://{host}:{port}/"
             ws = websocket.WebSocketApp(ws_url, on_message=on_message, on_open=on_open)
-            ws.run_forever(ping_interval=25, ping_timeout=10)
+            ws.run_forever(ping_interval=20, ping_timeout=10)
 
-        # --- 実行制御 ---
+        # --- 2. 実行制御 ---
         target_rid = st.session_state.get("room_id")
         if target_rid:
-            # 接続情報を取得
+            # 接続情報の最新化
             if not st.session_state.get("bcsvr_host"):
                 try:
                     res = requests.get(f"https://www.showroom-live.com/api/live/live_info?room_id={target_rid}").json()
@@ -729,35 +735,39 @@ if st.session_state.is_tracking:
                     st.session_state.bcsvr_key = res.get("bcsvr_key")
                 except: pass
 
-            # スレッド監視
-            if globals().get('WS_STAR_THREAD') is None or not globals()['WS_STAR_THREAD'].is_alive():
-                h, p, k = st.session_state.get("bcsvr_host"), st.session_state.get("bcsvr_port"), st.session_state.get("bcsvr_key")
+            # スレッド起動・再起動
+            curr_t = globals().get('WS_ACTIVE_THREAD')
+            if curr_t is None or not curr_t.is_alive():
+                h = st.session_state.get("bcsvr_host")
+                p = st.session_state.get("bcsvr_port")
+                k = st.session_state.get("bcsvr_key")
                 if h and k:
-                    t = threading.Thread(target=ws_star_engine, args=(str(target_rid), str(h), str(p), str(k)), daemon=True)
+                    t = threading.Thread(target=ws_engine_fix, args=(str(target_rid), str(h), str(p), str(k)), daemon=True)
                     t.start()
-                    globals()['WS_STAR_THREAD'] = t
+                    globals()['WS_ACTIVE_THREAD'] = t
                     time.sleep(1)
 
-        # --- 表示 ---
-        display_stars = list(globals().get('STAR_LOG', []))
+        # --- 3. 表示部分 ---
+        display_list = list(globals().get('FINAL_GIFT_LOG', []))
 
-        st.markdown("### 🌟 無償ギフト (リアルタイム監視)")
-        is_active = globals().get('WS_STAR_THREAD') and globals()['WS_STAR_THREAD'].is_alive()
-
-        st.markdown(f"📡 接続状況: {'✅ 稼働中' if is_active else '❌ 停止'} | 受信数: {len(display_stars)}", unsafe_allow_html=True)
+        st.markdown("### 🌟 無償ギフト (パケット解析モード)")
+        is_alive = globals().get('WS_ACTIVE_THREAD') and globals()['WS_ACTIVE_THREAD'].is_alive()
+        st.markdown(f"📡 接続状況: {'✅ 稼働中' if is_alive else '❌ 停止'} | 受信数: {len(display_list)}件", unsafe_allow_html=True)
 
         with st.container(border=True, height=500):
-            if display_stars:
-                for s in display_stars:
-                    img_url = f"https://static.showroom-live.com/image/gift/{s['gift_id']}_s.png"
+            if display_list:
+                for item in display_list:
+                    img_url = f"https://static.showroom-live.com/image/gift/{item['gift_id']}_s.png"
+                    color = "#fffdca" if item['pts'] == 0 else "#e0f7ff" # 無償は少し色を変える
                     st.markdown(
-                        f"<div style='margin-bottom:5px; border-bottom:1px solid #444;'>"
-                        f"<small>{s['time']}</small> <img src='{img_url}' width='20'> <b>{s['name']}</b> ×{s['num']}"
-                        f"</div>", 
+                        f"<div style='background-color:{color}; padding:5px; border-radius:5px; margin-bottom:5px; color:#333;'>"
+                        f"[{item['time']}] <img src='{img_url}' width='20'> <b>{item['name']}</b> ×{item['num']} "
+                        f"{' (無償)' if item['pts'] == 0 else f' ({item['pts']}pt)'}</div>", 
                         unsafe_allow_html=True
                     )
             else:
-                st.write("星・種の信号を待機しています... (コメントが流れる通信の中から抽出します)")
+                st.info("信号解析中... ギフトが投げられるとここに表示されます。")
+
 
 
         st.markdown("---")
