@@ -108,19 +108,18 @@ def update_free_gift_master(room_id):
         res = requests.get(url, headers=headers, timeout=5).json()
         
         master = {}
-        # 取得漏れを防ぐため、レスポンス内の全カテゴリを走査
         for cat_key in res.keys():
             category_list = res[cat_key]
             if isinstance(category_list, list):
                 for category in category_list:
                     gifts = category.get("list", [])
                     for gift in gifts:
-                        # 無償ギフト(is_not_free=False)を抽出
-                        if gift.get("is_not_free") == False:
+                        # 修正ポイント：is_not_freeがFalse かつ freeがTrue のものだけを「無償ギフト」とする
+                        if gift.get("is_not_free") == False and gift.get("free") == True:
                             master[gift["gift_id"]] = {
                                 "name": gift["gift_name"],
                                 "image": gift["image"],
-                                "point": gift.get("free_num_2020", 1)
+                                "point": gift.get("point", 1) # SHOWROOM仕様に基づき point を優先
                             }
         st.session_state.free_gift_master = master
     except Exception as e:

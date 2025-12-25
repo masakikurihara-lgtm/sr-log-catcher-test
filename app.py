@@ -730,16 +730,18 @@ if st.session_state.is_tracking:
         st.session_state.fan_list = fan_list
         st.session_state.total_fan_count = total_fan_count
 
-# --- 無償ギフト：キューからデータを取り出してログに変換 ---
-        # 画面が更新されるたびに、バックグラウンドで届いたデータを session_state に移します
+        # --- 無償ギフト：キューからデータを取り出してログに変換 ---
         import time
         while not gift_queue.empty():
             try:
                 raw_data = gift_queue.get_nowait()
                 gift_id = raw_data.get("g")
                 
-                # マスターから情報を取得（取得できていない場合は空の辞書）
-                master = st.session_state.get("free_gift_master", {}).get(gift_id, {})
+                # 修正ポイント：マスターに存在しないギフト（有償ギフト）は無視する
+                if gift_id not in st.session_state.get("free_gift_master", {}):
+                    continue
+                
+                master = st.session_state.free_gift_master[gift_id]
                 
                 new_entry = {
                     "created_at": raw_data.get("created_at", int(time.time())),
@@ -747,7 +749,7 @@ if st.session_state.is_tracking:
                     "name": raw_data.get("ac"),
                     "avatar_id": raw_data.get("av"),
                     "gift_id": gift_id,
-                    "gift_name": master.get("name", f"無償ギフト({gift_id})"),
+                    "gift_name": master.get("name"),
                     "point": master.get("point", 1),
                     "num": raw_data.get("n", 1),
                     "image": master.get("image", "")
@@ -834,12 +836,13 @@ if st.session_state.is_tracking:
                     for log in st.session_state.free_gift_log:
                         user_name = log.get('name', '匿名ユーザー')
                         created_at = datetime.datetime.fromtimestamp(log.get('created_at', 0), JST).strftime("%H:%M:%S")
-                        gift_name = log.get('gift_name', '不明なギフト')
                         gift_count = log.get('num', 0)
+                        gift_point = log.get('point', 1) # 1pt
                         gift_image_url = log.get('image', '')
                         avatar_id = log.get('avatar_id', None)
                         avatar_url = f"https://static.showroom-live.com/image/avatar/{avatar_id}.png" if avatar_id else DEFAULT_AVATAR
                         
+                        # デザインをスペシャルギフト(col_gift)と統一
                         html = f"""
                         <div class="gift-item">
                             <div class="gift-item-row">
@@ -849,8 +852,9 @@ if st.session_state.is_tracking:
                                     <div class="gift-user">{user_name}</div>
                                     <div class="gift-info-row">
                                         <img src="{gift_image_url}" class="gift-image" />
-                                        <span>{gift_name} ×{gift_count}</span>
+                                        <span>×{gift_count}</span>
                                     </div>
+                                    <div>{gift_point} pt</div>
                                 </div>
                             </div>
                         </div>
