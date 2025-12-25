@@ -453,7 +453,7 @@ st.markdown(
     "<h1 style='font-size:28px; text-align:left; color:#1f2937;'>🎤 SHOWROOM 配信ログ収集ツール</h1>",
     unsafe_allow_html=True
 )
-st.write("配信中のコメント、スペシャルギフト、ファンリストをリアルタイムで収集し、ログをダウンロードできます。")
+st.write("配信中のコメント、スペシャルギフト、無償ギフト、ファンリストをリアルタイムで収集し、ログをダウンロードできます。")
 st.write("")
 
 
