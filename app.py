@@ -248,7 +248,8 @@ CSS_STYLE = """
     /*margin-bottom: 5px !important;*/
     margin-bottom: -36px !important;
     margin-top: 0 !important;
-    position: relative; /* 他の要素に埋もれないようにします */
+    position: relative; 
+    z-index: 9999;      /* 強制的に一番手前に表示させる */
 }
 </style>
 """
