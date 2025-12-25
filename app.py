@@ -543,11 +543,12 @@ if st.button("トラッキング開始", key="start_button"):
                     except:
                         pass
                 
-                # 4. 無償ギフト受信機（WebSocket）をバックグラウンドで起動
+# 4. 無償ギフト受信機（WebSocket）をバックグラウンドで起動
+                # 引数名を free_gift_handler.py の定義（host, key）に合わせて修正します
                 receiver = FreeGiftReceiver(
                     room_id=input_room_id,
-                    bcsvr_host=streaming_info["host"],
-                    bcsvr_key=streaming_info["key"]
+                    host=streaming_info["host"],  # bcsvr_host から host に変更
+                    key=streaming_info["key"]    # bcsvr_key から key に変更
                 )
                 receiver.start()
                 st.session_state.ws_receiver = receiver
