@@ -9,7 +9,7 @@ import ftplib
 import io
 import datetime
 import os
-from free_gift_handler import FreeGiftReceiver, get_streaming_server_info, update_free_gift_master
+from free_gift_handler import FreeGiftReceiver, get_streaming_server_info, update_free_gift_master, gift_queue
 
 
 def upload_csv_to_ftp(filename: str, csv_buffer: io.BytesIO):
@@ -729,20 +729,16 @@ if st.session_state.is_tracking:
         st.session_state.fan_list = fan_list
         st.session_state.total_fan_count = total_fan_count
 
-        # --- 無償ギフト生データの処理 (キューからログへ変換) ---
-        # app.py 内の raw_free_gift_queue を処理する箇所
-        if st.session_state.get("raw_free_gift_queue"):
-            current_queue = st.session_state.raw_free_gift_queue[:]
-            st.session_state.raw_free_gift_queue = [] # 処理した分をクリア
-            
-            for raw_data in current_queue:
+# --- 無償ギフト：キューからデータを取り出してログに変換 ---
+        # 画面が更新されるたびに、バックグラウンドで届いたデータを session_state に移します
+        import time
+        while not gift_queue.empty():
+            try:
+                raw_data = gift_queue.get_nowait()
                 gift_id = raw_data.get("g")
                 
-                # デバッグ：受信したIDを画面端（サイドバーなど）に一時的に出す
-                # st.sidebar.write(f"受信ID: {gift_id}") 
-                
-                # マスターにあるか確認。無ければ直接raw_dataから作成
-                master = st.session_state.free_gift_master.get(gift_id)
+                # マスターから情報を取得（取得できていない場合は空の辞書）
+                master = st.session_state.get("free_gift_master", {}).get(gift_id, {})
                 
                 new_entry = {
                     "created_at": raw_data.get("created_at", int(time.time())),
@@ -750,14 +746,21 @@ if st.session_state.is_tracking:
                     "name": raw_data.get("ac"),
                     "avatar_id": raw_data.get("av"),
                     "gift_id": gift_id,
-                    "gift_name": master["name"] if master else "無償ギフト",
-                    "point": master["point"] if master else 1,
+                    "gift_name": master.get("name", f"無償ギフト({gift_id})"),
+                    "point": master.get("point", 1),
                     "num": raw_data.get("n", 1),
-                    "image": master["image"] if master else ""
+                    "image": master.get("image", "")
                 }
                 
-                # 重複チェックを外して、まずは「出る」ことを優先します
+                # ログの先頭に追加（新しい順）
                 st.session_state.free_gift_log.insert(0, new_entry)
+                
+                # ログが溜まりすぎないよう制限（直近100件までなど）
+                if len(st.session_state.free_gift_log) > 100:
+                    st.session_state.free_gift_log = st.session_state.free_gift_log[:100]
+                    
+            except Exception as e:
+                break
             
             # 新しい順にソート
             st.session_state.free_gift_log.sort(key=lambda x: x["created_at"], reverse=True)
