@@ -574,66 +574,67 @@ if st.session_state.is_tracking:
     onlives_data = get_onlives_rooms()
     target_room_info = onlives_data.get(int(st.session_state.room_id)) if st.session_state.room_id.isdigit() else None
 
-        # --- 配信終了検知と自動保存処理 ---
-        is_live_now = int(st.session_state.room_id) in onlives_data
+    # --- 配信終了検知と自動保存処理 ---
+    # インデントを一段（半角スペース4つ）に統一しています
+    is_live_now = int(st.session_state.room_id) in onlives_data
 
-        if not is_live_now:
-            st.warning("📡 配信が終了しました。全ログを最終保存します。")
+    if not is_live_now:
+        st.warning("📡 配信が終了しました。全ログを最終保存します。")
 
-            # 1. コメントログ保存
-            if st.session_state.comment_log:
-                comment_df = pd.DataFrame([
-                    {
-                        "コメント時間": datetime.datetime.fromtimestamp(log.get("created_at", 0), JST).strftime("%Y-%m-%d %H:%M:%S"),
-                        "ユーザー名": log.get("name", ""),
-                        "コメント内容": log.get("comment", ""),
-                        "ユーザーID": log.get("user_id", "")
-                    }
-                    for log in st.session_state.comment_log
-                    if not any(keyword in log.get("name", "") or keyword in log.get("comment", "") for keyword in SYSTEM_COMMENT_KEYWORDS)
-                ])
-                buf = io.BytesIO()
-                comment_df.to_csv(buf, index=False, encoding="utf-8-sig")
-                upload_csv_to_ftp(f"comment_log_{st.session_state.room_id}_{datetime.datetime.now(JST).strftime('%Y%m%d_%H%M%S')}.csv", buf)
+        # 1. コメントログ保存
+        if st.session_state.comment_log:
+            comment_df = pd.DataFrame([
+                {
+                    "コメント時間": datetime.datetime.fromtimestamp(log.get("created_at", 0), JST).strftime("%Y-%m-%d %H:%M:%S"),
+                    "ユーザー名": log.get("name", ""),
+                    "コメント内容": log.get("comment", ""),
+                    "ユーザーID": log.get("user_id", "")
+                }
+                for log in st.session_state.comment_log
+                if not any(keyword in log.get("name", "") or keyword in log.get("comment", "") for keyword in SYSTEM_COMMENT_KEYWORDS)
+            ])
+            buf = io.BytesIO()
+            comment_df.to_csv(buf, index=False, encoding="utf-8-sig")
+            upload_csv_to_ftp(f"comment_log_{st.session_state.room_id}_{datetime.datetime.now(JST).strftime('%Y%m%d_%H%M%S')}.csv", buf)
 
-            # 2. 有償ギフトログ保存
-            if st.session_state.gift_log:
-                gift_df = pd.DataFrame([
-                    {
-                        "ギフト時間": datetime.datetime.fromtimestamp(log.get("created_at", 0), JST).strftime("%Y-%m-%d %H:%M:%S"),
-                        "ユーザー名": log.get("name", ""),
-                        "ギフト名": st.session_state.gift_list_map.get(str(log.get("gift_id")), {}).get("name", ""),
-                        "個数": log.get("num", ""),
-                        "ポイント": st.session_state.gift_list_map.get(str(log.get("gift_id")), {}).get("point", 0),
-                        "ユーザーID": log.get("user_id", "")
-                    }
-                    for log in st.session_state.gift_log
-                ])
-                buf = io.BytesIO()
-                gift_df.to_csv(buf, index=False, encoding="utf-8-sig")
-                upload_csv_to_ftp(f"gift_log_{st.session_state.room_id}_{datetime.datetime.now(JST).strftime('%Y%m%d_%H%M%S')}.csv", buf)
+        # 2. 有償ギフトログ保存
+        if st.session_state.gift_log:
+            gift_df = pd.DataFrame([
+                {
+                    "ギフト時間": datetime.datetime.fromtimestamp(log.get("created_at", 0), JST).strftime("%Y-%m-%d %H:%M:%S"),
+                    "ユーザー名": log.get("name", ""),
+                    "ギフト名": st.session_state.gift_list_map.get(str(log.get("gift_id")), {}).get("name", ""),
+                    "個数": log.get("num", ""),
+                    "ポイント": st.session_state.gift_list_map.get(str(log.get("gift_id")), {}).get("point", 0),
+                    "ユーザーID": log.get("user_id", "")
+                }
+                for log in st.session_state.gift_log
+            ])
+            buf = io.BytesIO()
+            gift_df.to_csv(buf, index=False, encoding="utf-8-sig")
+            upload_csv_to_ftp(f"gift_log_{st.session_state.room_id}_{datetime.datetime.now(JST).strftime('%Y%m%d_%H%M%S')}.csv", buf)
 
-            # 3. 無償ギフトログ保存（追加分）
-            if st.session_state.free_gift_log:
-                free_gift_df = pd.DataFrame([
-                    {
-                        "ギフト時間": datetime.datetime.fromtimestamp(log.get("created_at", 0), JST).strftime("%Y-%m-%d %H:%M:%S"),
-                        "ユーザー名": log.get("name", ""),
-                        "ギフト名": log.get("gift_name", ""),
-                        "個数": log.get("num", ""),
-                        "ポイント": log.get("point", 0),
-                        "ユーザーID": log.get("user_id", "")
-                    }
-                    for log in st.session_state.free_gift_log
-                ])
-                buf = io.BytesIO()
-                free_gift_df.to_csv(buf, index=False, encoding="utf-8-sig")
-                upload_csv_to_ftp(f"free_gift_log_{st.session_state.room_id}_{datetime.datetime.now(JST).strftime('%Y%m%d_%H%M%S')}.csv", buf)
+        # 3. 無償ギフトログ保存（追加分）
+        if st.session_state.free_gift_log:
+            free_gift_df = pd.DataFrame([
+                {
+                    "ギフト時間": datetime.datetime.fromtimestamp(log.get("created_at", 0), JST).strftime("%Y-%m-%d %H:%M:%S"),
+                    "ユーザー名": log.get("name", ""),
+                    "ギフト名": log.get("gift_name", ""),
+                    "個数": log.get("num", ""),
+                    "ポイント": log.get("point", 0),
+                    "ユーザーID": log.get("user_id", "")
+                }
+                for log in st.session_state.free_gift_log
+            ])
+            buf = io.BytesIO()
+            free_gift_df.to_csv(buf, index=False, encoding="utf-8-sig")
+            upload_csv_to_ftp(f"free_gift_log_{st.session_state.room_id}_{datetime.datetime.now(JST).strftime('%Y%m%d_%H%M%S')}.csv", buf)
 
-            # 状態変更とリロード
-            st.session_state.is_tracking = False
-            st.info("✅ 配信終了を検知し、すべてのログを保存しました。トラッキングを停止します。")
-            st.rerun()
+        # 状態変更とリロード
+        st.session_state.is_tracking = False
+        st.info("✅ 配信終了を検知し、すべてのログを保存しました。トラッキングを停止します。")
+        st.rerun()
 
 
     if target_room_info:
