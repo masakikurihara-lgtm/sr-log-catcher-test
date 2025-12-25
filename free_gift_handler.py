@@ -61,16 +61,24 @@ class FreeGiftReceiver:
 # --- free_gift_handler.py の末尾に追加 ---
 
 def get_streaming_server_info(room_id):
-    """配信サーバーのホストとキーを取得する"""
+    """配信サーバーのホストとキーを live_info API から取得する"""
     import requests
+    # テストコードと同じHEADERS定義が必要な場合は適宜追加してください
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+    }
     try:
-        res = requests.get(f"https://www.showroom-live.com/api/live/streaming_server?room_id={room_id}", timeout=5).json()
-        if "streaming_url_list" in res and res["streaming_url_list"]:
-            # 最初の配信サーバー情報を返す
-            server = res["streaming_url_list"][0]
-            return {"host": server["host"], "key": server["key"]}
+        # テスト時に成功していたAPIエンドポイントに変更
+        url = f"https://www.showroom-live.com/api/live/live_info?room_id={room_id}"
+        res = requests.get(url, headers=headers, timeout=5).json()
+        
+        host = res.get("bcsvr_host")
+        key = res.get("bcsvr_key")
+        
+        if host and key:
+            return {"host": host, "key": key}
     except Exception as e:
-        print(f"Error fetching streaming info: {e}")
+        print(f"Error fetching live info: {e}")
     return None
 
 def update_free_gift_master(room_id):
