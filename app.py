@@ -667,119 +667,87 @@ if st.session_state.is_tracking:
 
         import websocket
         import json
-        import threading
         import time
         import requests
         import streamlit as st
 
-        # 1. データの保管場所（ブラウザ更新時もスレッドを維持するためglobalsを使用）
-        if 'FREE_GIFT_LOG' not in globals():
-            globals()['FREE_GIFT_LOG'] = []
-        if 'WS_MONITOR_THREAD' not in globals():
-            globals()['WS_MONITOR_THREAD'] = None
+        # --- 1. 接続情報の取得 ---
+        def get_ws_info(room_id):
+            try:
+                res = requests.get(f"https://www.showroom-live.com/api/live/live_info?room_id={room_id}", timeout=5).json()
+                return res.get("bcsvr_host"), res.get("bcsvr_port"), res.get("bcsvr_key")
+            except:
+                return None, None, None
 
-        def ws_engine_star_seed(rid, host, port, key):
-            def on_message(ws, message):
-                try:
+        # --- 2. 5秒間だけ直接パケットをキャッチする関数 ---
+        def capture_gifts_direct(host, port, key):
+            captured = []
+            ws_url = f"wss://{host}/" if str(port) == "443" else f"ws://{host}:{port}/"
+            
+            try:
+                ws = websocket.create_connection(ws_url, timeout=5)
+                ws.send(f"SUB\t{key}\n")
+                
+                # 5秒間だけループしてパケットを読み取る
+                start_time = time.time()
+                while time.time() - start_time < 5:
+                    message = ws.recv()
                     msg_str = message.decode('utf-8', errors='ignore') if isinstance(message, bytes) else str(message)
                     
-                    # 生存確認（ACK）への応答
                     if msg_str.startswith("ACK\t"):
-                        ws.send(f"{msg_str}\n".encode('utf-8'))
-                        return
-
-                    # JSONデータの抽出（MSG 123...: { ... } の中身を取り出す）
-                    start_idx = msg_str.find('{')
-                    if start_idx == -1: return
+                        ws.send(f"{msg_str}\n")
+                        continue
                     
-                    data = json.loads(msg_str[start_idx:])
-                    items = data if isinstance(data, list) else [data]
-                    
-                    for d in items:
-                        # 【最重要】提供された生ログに基づくキー判定
-                        # t=2 (ギフトイベント), g (ギフトID), gt=2 (無償系ギフト)
-                        g_id = d.get("g")
-                        gt_type = d.get("gt")
-                        
-                        if g_id and gt_type == 2:
-                            # ギフトIDに応じた名称の割り当て
-                            g_name = "ギフト"
-                            if g_id == 3000421: g_name = "キラキラ星"
-                            elif g_id == 3000842: g_name = "種(赤)"
-                            
-                            new_item = {
-                                "time": time.strftime("%H:%M:%S", time.localtime()),
-                                "user": d.get("ac", "不明"), # 'ac' がアカウント名
-                                "gift_id": g_id,
-                                "gift_name": g_name,
-                                "num": d.get("n", 1) # 'n' が個数
-                            }
-                            
-                            globals()['FREE_GIFT_LOG'].insert(0, new_item)
-                            # ログは最新50件まで
-                            if len(globals()['FREE_GIFT_LOG']) > 50:
-                                globals()['FREE_GIFT_LOG'].pop()
-                except Exception:
-                    pass
+                    start_ptr = msg_str.find('{')
+                    if start_ptr != -1:
+                        data = json.loads(msg_str[start_ptr:])
+                        items = data if isinstance(data, list) else [data]
+                        for d in items:
+                            # あなたの解析通り "g" を確認
+                            if d.get("g"):
+                                captured.append({
+                                    "time": time.strftime("%H:%M:%S"),
+                                    "user": d.get("ac", "不明"),
+                                    "gift_id": d.get("g"),
+                                    "num": d.get("n", 1),
+                                    "is_free": (d.get("gt") == 2)
+                                })
+                ws.close()
+            except Exception as e:
+                st.error(f"接続エラー: {e}")
+            
+            return captured
 
-            def on_open(ws):
-                # 購読開始
-                ws.send(f"SUB\t{key}\n".encode('utf-8'))
+        # --- 3. メイン表示 ---
+        st.title("🌟 無償ギフト直接検知テスト")
 
-            # wss (443) か ws (8080) かを自動判別
-            ws_url = f"wss://{host}/" if str(port) == "443" else f"ws://{host}:{port}/"
-            ws = websocket.WebSocketApp(ws_url, on_message=on_message, on_open=on_open)
-            ws.run_forever(ping_interval=20, ping_timeout=10)
+        # セッション状態でのログ保持
+        if "DIRECT_LOG" not in st.session_state:
+            st.session_state.DIRECT_LOG = []
 
-        # --- 2. 接続管理 ---
-        target_rid = st.session_state.get("room_id")
+        rid = st.session_state.get("room_id", "336836") # 例として
+        h, p, k = get_ws_info(rid)
 
-        if target_rid:
-            # 接続情報が未取得の場合はAPIから取得
-            if "bcsvr_info" not in st.session_state:
-                try:
-                    res = requests.get(f"https://www.showroom-live.com/api/live/live_info?room_id={target_rid}").json()
-                    st.session_state.bcsvr_info = {
-                        "host": res.get("bcsvr_host"),
-                        "port": res.get("bcsvr_port"),
-                        "key": res.get("bcsvr_key")
-                    }
-                except: pass
+        if h and k:
+            st.write(f"📡 現在 5秒間 のパケットを直接スキャン中... ({h})")
+            new_data = capture_gifts_direct(h, p, k)
+            
+            if new_data:
+                # 重複を避ける処理は一旦置いといて追加
+                st.session_state.DIRECT_LOG = new_data + st.session_state.DIRECT_LOG
+                st.session_state.DIRECT_LOG = st.session_state.DIRECT_LOG[:50] # 最大50件
 
-            # スレッドが動いていなければ開始
-            info = st.session_state.get("bcsvr_info")
-            if info and (globals()['WS_MONITOR_THREAD'] is None or not globals()['WS_MONITOR_THREAD'].is_alive()):
-                t = threading.Thread(
-                    target=ws_engine_star_seed, 
-                    args=(str(target_rid), info['host'], info['port'], info['key']),
-                    daemon=True
-                )
-                t.start()
-                globals()['WS_MONITOR_THREAD'] = t
-
-        # --- 3. 表示部分 ---
-        st.markdown("### 🌟 無償ギフト抽出 (星・種 専用)")
-
-        is_active = globals()['WS_MONITOR_THREAD'] and globals()['WS_MONITOR_THREAD'].is_alive()
-        status_color = "green" if is_active else "red"
-        st.markdown(f"📡 ステータス: <span style='color:{status_color};'>{'✅ 稼働中' if is_active else '❌ 停止'}</span>", unsafe_allow_html=True)
-
-        display_log = list(globals()['FREE_GIFT_LOG'])
-
-        with st.container(border=True, height=500):
-            if display_log:
-                for item in display_log:
-                    img_url = f"https://static.showroom-live.com/image/gift/{item['gift_id']}_s.png"
-                    st.markdown(
-                        f"<div style='margin-bottom:8px; border-bottom:1px solid #333; padding-bottom:5px;'>"
-                        f"<span style='color:gray; font-size:0.8em;'>{item['time']}</span> "
-                        f"<img src='{img_url}' width='20' style='vertical-align:middle;'> "
-                        f"<b>{item['user']}</b> さんが <b>{item['gift_name']}</b> を <b>×{item['num']}</b> 投げました"
-                        f"</div>", 
-                        unsafe_allow_html=True
-                    )
+        # 表示
+        with st.container(border=True):
+            if st.session_state.DIRECT_LOG:
+                for item in st.session_state.DIRECT_LOG:
+                    img = f"https://static.showroom-live.com/image/gift/{item['gift_id']}_s.png"
+                    st.markdown(f"**{item['time']}** <img src='{img}' width='20'> {item['user']} ×{item['num']} {'(無償)' if item['is_free'] else ''}", unsafe_allow_html=True)
             else:
-                st.info("星・種の信号をスキャンしています...（投げられるまでお待ちください）")
+                st.info("この5秒間には星・種は流れませんでした。自動更新をお待ちください。")
+
+        # 既存のリフレッシュ機能があるとのことですので、そのまま連動するはずです。
+
 
 
         st.markdown("---")
