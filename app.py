@@ -1310,7 +1310,7 @@ else:
 
 # --- ▲▲▲ スペシャル＆無償マージ版 ここまで ▲▲▲ ---
 
-# --- ▼▼▼ スペシャル＆無償ギフトログ一覧表 （ユーザー単位で集計） ▼▼▼ ---
+# --- ▼▼▼ スペシャル＆無償ギフトログ一覧表 （ユーザー単位で集計） [名前変更対策版] ▼▼▼ ---
 
 st.markdown("---")
 
@@ -1321,6 +1321,9 @@ if st.session_state.gift_log or st.session_state.free_gift_log:
     # 1. スペシャルギフトの集計用準備
     if st.session_state.gift_log:
         s_df_agg = pd.DataFrame(st.session_state.gift_log)
+        # 時間順ソート用の変換
+        s_df_agg['created_at_dt'] = pd.to_datetime(s_df_agg['created_at'], unit='s')
+        
         if st.session_state.gift_list_map:
             gift_info_df = pd.DataFrame.from_dict(st.session_state.gift_list_map, orient='index')
             gift_info_df.index = gift_info_df.index.astype(str)
@@ -1331,53 +1334,63 @@ if st.session_state.gift_log or st.session_state.free_gift_log:
                 'name_u': 'ユーザー名', 'name_g': 'ギフト名', 'num': '個数', 
                 'point': 'ポイント', 'user_id': 'ユーザーID'
             })
-            all_data_for_agg.append(s_df_agg[['ユーザー名', 'ユーザーID', 'ギフト名', 'ポイント', '個数']])
+            all_data_for_agg.append(s_df_agg[['ユーザー名', 'ユーザーID', 'ギフト名', 'ポイント', '個数', 'created_at_dt']])
 
     # 2. 無償ギフトの集計用準備
     if st.session_state.free_gift_log:
         f_df_agg = pd.DataFrame(st.session_state.free_gift_log)
+        f_df_agg['created_at_dt'] = pd.to_datetime(f_df_agg['created_at'], unit='s')
         f_df_agg = f_df_agg.rename(columns={
             'name': 'ユーザー名', 'gift_name': 'ギフト名', 'num': '個数', 
             'point': 'ポイント', 'user_id': 'ユーザーID'
         })
-        all_data_for_agg.append(f_df_agg[['ユーザー名', 'ユーザーID', 'ギフト名', 'ポイント', '個数']])
+        all_data_for_agg.append(f_df_agg[['ユーザー名', 'ユーザーID', 'ギフト名', 'ポイント', '個数', 'created_at_dt']])
 
     if all_data_for_agg:
         # 3. 全データの結合
         combined_agg_df = pd.concat(all_data_for_agg, ignore_index=True)
 
-        # 4. ユーザー・ギフトごとの集計
+        # ---- 名前変更対策ロジック ----
+        # 全データの中で、各ユーザーIDの最新の名前を特定する
+        latest_all_names = combined_agg_df.sort_values('created_at_dt').groupby('ユーザーID')['ユーザー名'].last().to_dict()
+
+        # 4. ユーザー・ギフトごとの集計（ユーザーIDをキーにする）
         grouped = (
-            combined_agg_df.groupby(['ユーザー名', 'ユーザーID', 'ギフト名', 'ポイント'], as_index=False)
+            combined_agg_df.groupby(['ユーザーID', 'ギフト名', 'ポイント'], as_index=False)
                            .agg({'個数': 'sum'})
         )
+        
+        # 最新の名前を紐付け
+        grouped['ユーザー名'] = grouped['ユーザーID'].map(latest_all_names)
 
         # 各行の合計ポイント計算
         grouped['行ポイント'] = grouped['個数'] * grouped['ポイント']
 
         # 5. ユーザー単位の総ポイント（ランキング基準）を計算
-        user_total = grouped.groupby(['ユーザー名', 'ユーザーID'])['行ポイント'].sum().reset_index()
+        user_total = grouped.groupby('ユーザーID')['行ポイント'].sum().reset_index()
         user_total = user_total.rename(columns={'行ポイント': 'ユーザー総ポイント'})
         
-        grouped = grouped.merge(user_total, on=['ユーザー名', 'ユーザーID'], how='left')
+        grouped = grouped.merge(user_total, on='ユーザーID', how='left')
 
-        # 6. ソート（ユーザー総ポイント降順 ＞ 単価降順）
+        # 6. ソート（ユーザー総ポイント降順 ＞ ユーザーID ＞ 単価降順）
         grouped_sorted = grouped.sort_values(
             by=['ユーザー総ポイント', 'ユーザーID', 'ポイント'],
             ascending=[False, True, False]
         )
 
-        # 7. 表示用データの整形（ユーザー名の重複を消す）
+        # 7. 表示用データの整形（ユーザーIDが変わったタイミングで名前と総Ptを表示）
         display_rows = []
         prev_user_id = None
         for _, row in grouped_sorted.iterrows():
             curr_user_id = row['ユーザーID']
+            is_new_user = (curr_user_id != prev_user_id)
+            
             display_rows.append({
-                'ユーザー名': row['ユーザー名'] if curr_user_id != prev_user_id else '',
+                'ユーザー名': row['ユーザー名'] if is_new_user else '',
                 'ギフト名': row['ギフト名'],
                 '個数（合計）': row['個数'],
                 'ポイント': row['ポイント'],
-                '総貢献Pt': int(row['ユーザー総ポイント']) if curr_user_id != prev_user_id else ''
+                '総貢献Pt': int(row['ユーザー総ポイント']) if is_new_user else ''
             })
             prev_user_id = curr_user_id
 
