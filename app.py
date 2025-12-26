@@ -1299,6 +1299,96 @@ else:
 
 # --- ▲▲▲ スペシャル＆無償マージ版 ここまで ▲▲▲ ---
 
+# --- ▼▼▼ スペシャル＆無償ギフトログ一覧表 （ユーザー単位で集計） ▼▼▼ ---
+
+st.markdown("---")
+
+# データがどちらか一方でもあれば実行
+if st.session_state.gift_log or st.session_state.free_gift_log:
+    all_data_for_agg = []
+
+    # 1. スペシャルギフトの集計用準備
+    if st.session_state.gift_log:
+        s_df_agg = pd.DataFrame(st.session_state.gift_log)
+        if st.session_state.gift_list_map:
+            gift_info_df = pd.DataFrame.from_dict(st.session_state.gift_list_map, orient='index')
+            gift_info_df.index = gift_info_df.index.astype(str)
+            s_df_agg['gift_id'] = s_df_agg['gift_id'].astype(str)
+            s_df_agg = s_df_agg.set_index('gift_id').join(gift_info_df, on='gift_id', lsuffix='_u', rsuffix='_g').reset_index()
+            
+            s_df_agg = s_df_agg.rename(columns={
+                'name_u': 'ユーザー名', 'name_g': 'ギフト名', 'num': '個数', 
+                'point': 'ポイント', 'user_id': 'ユーザーID'
+            })
+            all_data_for_agg.append(s_df_agg[['ユーザー名', 'ユーザーID', 'ギフト名', 'ポイント', '個数']])
+
+    # 2. 無償ギフトの集計用準備
+    if st.session_state.free_gift_log:
+        f_df_agg = pd.DataFrame(st.session_state.free_gift_log)
+        f_df_agg = f_df_agg.rename(columns={
+            'name': 'ユーザー名', 'gift_name': 'ギフト名', 'num': '個数', 
+            'point': 'ポイント', 'user_id': 'ユーザーID'
+        })
+        all_data_for_agg.append(f_df_agg[['ユーザー名', 'ユーザーID', 'ギフト名', 'ポイント', '個数']])
+
+    if all_data_for_agg:
+        # 3. 全データの結合
+        combined_agg_df = pd.concat(all_data_for_agg, ignore_index=True)
+
+        # 4. ユーザー・ギフトごとの集計
+        grouped = (
+            combined_agg_df.groupby(['ユーザー名', 'ユーザーID', 'ギフト名', 'ポイント'], as_index=False)
+                           .agg({'個数': 'sum'})
+        )
+
+        # 各行の合計ポイント計算
+        grouped['行ポイント'] = grouped['個数'] * grouped['ポイント']
+
+        # 5. ユーザー単位の総ポイント（ランキング基準）を計算
+        user_total = grouped.groupby(['ユーザー名', 'ユーザーID'])['行ポイント'].sum().reset_index()
+        user_total = user_total.rename(columns={'行ポイント': 'ユーザー総ポイント'})
+        
+        grouped = grouped.merge(user_total, on=['ユーザー名', 'ユーザーID'], how='left')
+
+        # 6. ソート（ユーザー総ポイント降順 ＞ 単価降順）
+        grouped_sorted = grouped.sort_values(
+            by=['ユーザー総ポイント', 'ユーザーID', 'ポイント'],
+            ascending=[False, True, False]
+        )
+
+        # 7. 表示用データの整形（ユーザー名の重複を消す）
+        display_rows = []
+        prev_user_id = None
+        for _, row in grouped_sorted.iterrows():
+            curr_user_id = row['ユーザーID']
+            display_rows.append({
+                'ユーザー名': row['ユーザー名'] if curr_user_id != prev_user_id else '',
+                'ギフト名': row['ギフト名'],
+                '個数（合計）': row['個数'],
+                'ポイント': row['ポイント'],
+                '総貢献Pt': int(row['ユーザー総ポイント']) if curr_user_id != prev_user_id else ''
+            })
+            prev_user_id = curr_user_id
+
+        final_agg_df = pd.DataFrame(display_rows)
+
+        # 8. UI表示
+        st.markdown(
+            """
+            <h3 style="font-size:1.5em; margin-bottom:6px;">
+                🎁🎈 スペシャル＆無償ギフトログ一覧表
+                <span style="font-size:0.7em; opacity:0.8;">（ユーザー単位で集計）</span>
+            </h3>
+            """,
+            unsafe_allow_html=True
+        )
+        st.dataframe(final_agg_df, use_container_width=True, hide_index=True)
+
+else:
+    st.info("集計できるギフトデータがありません。")
+
+# --- ▲▲▲ スペシャル＆無償ギフト集計版 ここまで ▲▲▲ ---
+
 st.markdown("---")
 
 # ファンリスト一覧表
