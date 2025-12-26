@@ -1234,6 +1234,71 @@ if st.session_state.free_gift_log:
 
 # --- ▲▲▲ 無償ギフト集計 ここまで ▲▲▲ ---
 
+# --- ▼▼▼ スペシャル＆無償ギフトログ一覧表（マージ版） ▼▼▼ ---
+
+st.markdown("---")
+st.markdown("#### 🎁🎈 スペシャル＆無償ギフトログ一覧表")
+
+combined_list = []
+
+# 1. スペシャルギフトの準備（既存のロジックで整形）
+if st.session_state.gift_log:
+    s_df = pd.DataFrame(st.session_state.gift_log)
+    if st.session_state.gift_list_map:
+        gift_info_df = pd.DataFrame.from_dict(st.session_state.gift_list_map, orient='index')
+        gift_info_df.index = gift_info_df.index.astype(str)
+        s_df['gift_id'] = s_df['gift_id'].astype(str)
+        s_df = s_df.set_index('gift_id').join(gift_info_df, on='gift_id', lsuffix='_u', rsuffix='_g').reset_index()
+        
+        # マージ用にカラム名を統一
+        s_df = s_df.rename(columns={
+            'name_u': 'ユーザー名', 'name_g': 'ギフト名', 'num': '個数', 
+            'point': 'ポイント', 'created_at': 'raw_time', 'user_id': 'ユーザーID'
+        })
+        combined_list.append(s_df[['raw_time', 'ユーザー名', 'ギフト名', '個数', 'ポイント', 'ユーザーID']])
+
+# 2. 無償ギフトの準備（既存のロジックで整形）
+if st.session_state.free_gift_log:
+    f_df = pd.DataFrame(st.session_state.free_gift_log)
+    f_df = f_df.rename(columns={
+        'name': 'ユーザー名', 'gift_name': 'ギフト名', 'num': '個数', 
+        'point': 'ポイント', 'created_at': 'raw_time', 'user_id': 'ユーザーID'
+    })
+    combined_list.append(f_df[['raw_time', 'ユーザー名', 'ギフト名', '個数', 'ポイント', 'ユーザーID']])
+
+# 3. マージとソート
+if combined_list:
+    merged_df = pd.concat(combined_list, ignore_index=True)
+    
+    # 時間で降順ソート（新しい順）
+    merged_df = merged_df.sort_values(by='raw_time', ascending=False)
+    
+    # 表示用に時間をJST文字列に変換
+    merged_df['ギフト時間'] = pd.to_datetime(
+        merged_df['raw_time'], unit='s'
+    ).dt.tz_localize('UTC').dt.tz_convert(JST).dt.strftime("%Y-%m-%d %H:%M:%S")
+    
+    # カラム順を整理
+    display_cols = ['ギフト時間', 'ユーザー名', 'ギフト名', '個数', 'ポイント', 'ユーザーID']
+    
+    st.dataframe(merged_df[display_cols], use_container_width=True, hide_index=True)
+    
+    # 4. CSVダウンロードボタン
+    buffer = io.BytesIO()
+    merged_df[display_cols].to_csv(buffer, index=False, encoding='utf-8-sig')
+    buffer.seek(0)
+    st.download_button(
+        label="スペシャル＆無償ギフトログをCSVでダウンロード",
+        data=buffer,
+        file_name=f"all_gift_log_{st.session_state.room_id}_{datetime.datetime.now(JST).strftime('%Y%m%d_%H%M%S')}.csv",
+        mime="text/csv",
+        key="download_all_gift_csv"
+    )
+else:
+    st.info("表示できるギフトデータがありません。")
+
+# --- ▲▲▲ スペシャル＆無償マージ版 ここまで ▲▲▲ ---
+
 st.markdown("---")
 
 # ファンリスト一覧表
