@@ -1115,6 +1115,52 @@ if st.session_state.gift_log:
 
 # ▲▲▲ ここまで ▲▲▲
 
+# --- 無償ギフトログ一覧表 の追加 ---
+
+st.markdown("---")
+
+# 無償ギフト用のカラム定義
+free_gift_cols = ['ギフト時間', 'ユーザー名', 'ギフト名', '個数', 'ポイント', 'ユーザーID']
+
+if st.session_state.free_gift_log:
+    # 1. ログのデータフレーム化
+    free_gift_df = pd.DataFrame(st.session_state.free_gift_log)
+    
+    # 2. 時間をJSTに変換
+    free_gift_df['created_at'] = pd.to_datetime(
+        free_gift_df['created_at'], unit='s'
+    ).dt.tz_localize('UTC').dt.tz_convert(JST).dt.strftime("%Y-%m-%d %H:%M:%S")
+    
+    # 3. カラム名の日本語化
+    # ※ free_gift_log は既に gift_name や point を持っている構造なので join は不要です
+    free_gift_df = free_gift_df.rename(columns={
+        'name': 'ユーザー名', 
+        'gift_name': 'ギフト名', 
+        'num': '個数', 
+        'point': 'ポイント', 
+        'created_at': 'ギフト時間', 
+        'user_id': 'ユーザーID'
+    })
+    
+    st.markdown("#### 🎈 無償ギフトログ一覧表")
+    st.dataframe(free_gift_df[free_gift_cols], use_container_width=True, hide_index=True)
+    
+    # 4. CSVダウンロードボタン
+    buffer = io.BytesIO()
+    free_gift_df[free_gift_cols].to_csv(buffer, index=False, encoding='utf-8-sig')
+    buffer.seek(0)
+    st.download_button(
+        label="無償ギフトログをCSVでダウンロード",
+        data=buffer,
+        file_name=f"free_gift_log_{st.session_state.room_id}_{datetime.datetime.now(JST).strftime('%Y%m%d_%H%M%S')}.csv",
+        mime="text/csv",
+        key="download_free_gift_csv" # 重複を避けるためのキー
+    )
+else:
+    st.info("ダウンロードできる無償ギフトがありません。")
+
+# --- 無償ギフトログ一覧表 ここまで ---
+
 st.markdown("---")
 
 # ファンリスト一覧表
