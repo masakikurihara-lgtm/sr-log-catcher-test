@@ -1163,6 +1163,70 @@ else:
 
 st.markdown("---")
 
+# --- ▼▼▼ 無償ギフトログ一覧表 （ユーザー単位で集計） ▼▼▼ ---
+
+if st.session_state.free_gift_log:
+    # 1. データの準備
+    free_gift_df2 = pd.DataFrame(st.session_state.free_gift_log)
+
+    # 2. カラム名の整理（無償ギフトログは既にギフト名やポイントを保持しているため結合不要）
+    free_gift_df2 = free_gift_df2.rename(columns={
+        'name': 'ユーザー名',
+        'gift_name': 'ギフト名',
+        'num': '個数',
+        'point': 'ポイント',
+        'user_id': 'ユーザーID'
+    })
+
+    # 3. 集計処理（ユーザー名、ID、ギフト名ごとに個数を合計）
+    free_grouped = (
+        free_gift_df2.groupby(['ユーザー名', 'ユーザーID', 'ギフト名', 'ポイント'], as_index=False)
+                     .agg({'個数': 'sum'})
+    )
+
+    # 4. ソート用の計算（ユーザーごとの総個数を算出）
+    # ※無償ギフトはポイントが基本1のため「総ポイント」ではなく「総個数」で並び替えるのが一般的です
+    free_user_total = free_grouped.groupby(['ユーザー名', 'ユーザーID'])['個数'].sum().reset_index()
+    free_user_total = free_user_total.rename(columns={'個数': 'ユーザー総個数'})
+    free_grouped = free_grouped.merge(free_user_total, on=['ユーザー名', 'ユーザーID'], how='left')
+
+    # 5. ソート実行
+    free_grouped_sorted = free_grouped.sort_values(
+        by=['ユーザー総個数', 'ユーザー名', '個数'],
+        ascending=[False, True, False]
+    )
+
+    # 6. 表示用データの作成（ユーザー名を1行目のみ表示し、以降は空白にする）
+    free_display_rows = []
+    prev_user = None
+    for _, row in free_grouped_sorted.iterrows():
+        user = row['ユーザー名']
+        free_display_rows.append({
+            'ユーザー名': user if user != prev_user else '',
+            'ギフト名': row['ギフト名'],
+            '個数（合計）': row['個数'],
+            'ポイント': row['ポイント']
+        })
+        prev_user = user
+
+    final_user_free_gift_df = pd.DataFrame(free_display_rows)
+
+    # 7. UI表示
+    st.markdown(
+        """
+        <h3 style="font-size:1.5em; margin-bottom:6px; margin-top:20px;">
+            🎈 無償ギフトログ一覧表
+            <span style="font-size:0.7em; opacity:0.8;">（ユーザー単位で集計）</span>
+        </h3>
+        """,
+        unsafe_allow_html=True
+    )
+    st.dataframe(final_user_free_gift_df, use_container_width=True, hide_index=True)
+
+# --- ▲▲▲ 無償ギフト集計 ここまで ▲▲▲ ---
+
+st.markdown("---")
+
 # ファンリスト一覧表
 if st.session_state.fan_list:
     fan_df = pd.DataFrame(st.session_state.fan_list)
