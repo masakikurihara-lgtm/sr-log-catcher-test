@@ -1104,7 +1104,7 @@ if st.session_state.gift_log:
     # st.markdown("#### 🎁 スペシャルギフト一覧表（ユーザー単位で集計）")
     st.markdown(
         """
-        <h3 style="font-size:0.8em; margin-bottom:6px;">
+        <h3 style="font-size:1.0em; margin-bottom:6px;">
             🎁 スペシャルギフトログ一覧表
             <span style="font-size:0.5em; opacity:0.8;">（ユーザー単位で集計）</span>
         </h3>
