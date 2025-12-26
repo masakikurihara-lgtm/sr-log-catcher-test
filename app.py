@@ -973,7 +973,7 @@ if filtered_comments_df:
     comment_df = comment_df.rename(columns={
         'name': 'ユーザー名', 'comment': 'コメント内容', 'created_at': 'コメント時間', 'user_id': 'ユーザーID'
     })
-    st.markdown("### 📝 コメントログ一覧表")
+    st.markdown("#### 📝 コメントログ一覧表")
     st.dataframe(comment_df[comment_cols], use_container_width=True, hide_index=True)
     
     buffer = io.BytesIO()
@@ -990,7 +990,7 @@ else:
 
 st.markdown("---")
 
-# ギフト一覧表
+# スペシャルギフトログ一覧表
 if st.session_state.gift_log:
     gift_df = pd.DataFrame(st.session_state.gift_log)
     gift_df['created_at'] = pd.to_datetime(gift_df['created_at'], unit='s').dt.tz_localize('UTC').dt.tz_convert(JST).dt.strftime("%Y-%m-%d %H:%M:%S")
@@ -1005,7 +1005,7 @@ if st.session_state.gift_log:
     gift_df = gift_df.rename(columns={
         'name_user_data': 'ユーザー名', 'name_gift_info': 'ギフト名', 'num': '個数', 'point': 'ポイント', 'created_at': 'ギフト時間', 'user_id': 'ユーザーID'
     })
-    st.markdown("### 🎁 スペシャルギフトログ一覧表")
+    st.markdown("#### 🎁 スペシャルギフトログ一覧表")
     st.dataframe(gift_df[gift_cols], use_container_width=True, hide_index=True)
     
     buffer = io.BytesIO()
@@ -1022,7 +1022,7 @@ else:
 
 st.markdown("---")
 
-# ▼▼▼ ここから追加機能：ユーザー単位ギフト集計 ▼▼▼
+# ▼▼▼ スペシャルギフトログ一覧表 （ユーザー単位で集計） ▼▼▼
 
 if st.session_state.gift_log:
     gift_df2 = pd.DataFrame(st.session_state.gift_log)
@@ -1101,7 +1101,7 @@ if st.session_state.gift_log:
 
     final_user_gift_df = pd.DataFrame(display_rows)
 
-    # st.markdown("### 🎁 スペシャルギフト一覧表（ユーザー単位で集計）")
+    # st.markdown("#### 🎁 スペシャルギフト一覧表（ユーザー単位で集計）")
     st.markdown(
         """
         <h3 style="margin-bottom:6px;">
@@ -1113,7 +1113,7 @@ if st.session_state.gift_log:
     )
     st.dataframe(final_user_gift_df, use_container_width=True, hide_index=True)
 
-# ▲▲▲ 追加機能ここまで ▲▲▲
+# ▲▲▲ ここまで ▲▲▲
 
 st.markdown("---")
 
@@ -1137,7 +1137,7 @@ if st.session_state.fan_list:
         "ユーザーID": st.column_config.NumberColumn("ユーザーID", help="SHOWROOMのユーザーID", width="medium")
     }
     
-    st.markdown("### 🏆 ファンリスト一覧表")
+    st.markdown("#### 🏆 ファンリスト一覧表")
     st.dataframe(
         fan_df[final_fan_cols], 
         use_container_width=True, 
