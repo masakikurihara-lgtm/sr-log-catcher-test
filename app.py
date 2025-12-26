@@ -809,7 +809,7 @@ if st.session_state.is_tracking:
         col_comment, col_gift, col_free_gift, col_fan = st.columns(4)
 
         with col_comment:
-            st.markdown("#### 📝 コメント")
+            st.markdown("##### 📝 コメント")
             with st.container(border=True, height=500):
                 filtered_comments = [
                     log for log in st.session_state.comment_log 
@@ -838,10 +838,10 @@ if st.session_state.is_tracking:
                         """
                         st.markdown(html, unsafe_allow_html=True)
                 else:
-                    st.info("コメントがありません。")
+                    st.info("コメントはまだありません。")
 
         with col_gift:
-            st.markdown("#### 🎁 スペシャルギフト")
+            st.markdown("##### 🎁 スペシャルギフト")
             with st.container(border=True, height=500):
                 if st.session_state.gift_log and st.session_state.gift_list_map:
                     # 💡 表示制限コントロール
@@ -886,10 +886,10 @@ if st.session_state.is_tracking:
                         """
                         st.markdown(html, unsafe_allow_html=True)
                 else:
-                    st.info("ギフトがありません。")
+                    st.info("スペシャルギフトはまだありません。")
 
         with col_free_gift:
-            st.markdown("#### 🎈 無償ギフト")
+            st.markdown("##### 🎈 無償ギフト")
             with st.container(border=True, height=500):
                 if st.session_state.free_gift_log:
                     # 💡 表示制限コントロール
@@ -926,7 +926,7 @@ if st.session_state.is_tracking:
                     st.info("無償ギフトはまだありません。")
 
         with col_fan:
-            st.markdown("#### 🏆 ファンリスト")
+            st.markdown("##### 🏆 ファンリスト")
             with st.container(border=True, height=500):
                 if st.session_state.fan_list:
                     display_fans = st.session_state.fan_list
