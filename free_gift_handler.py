@@ -7,8 +7,11 @@ import time
 import streamlit as st
 
 # --- 通信スレッドとメイン画面の間でデータを安全に受け渡すためのキュー ---
-# これにより、WebSocketスレッドがエラーで止まるのを防ぎます
 gift_queue = queue.Queue()
+
+# ① 2台同時起動時の競合解消用：全スレッドで共有するキューのリスト
+active_queues = []
+queues_lock = threading.Lock()
 
 class FreeGiftReceiver:
     def __init__(self, room_id, host, key):
@@ -32,9 +35,14 @@ class FreeGiftReceiver:
 
                 # ギフトメッセージ(t=2)のみを対象
                 if data.get("t") == 2:
-                    # 重要：スレッド内から st.session_state を触ると落ちるため、
-                    # 安全な gift_queue にデータを放り込むだけに留めます
-                    gift_queue.put(data)
+                    # ① 修正：全アクティブスレッドのキューにデータを投入
+                    # これにより、複数タブを開いても全画面に反映されます
+                    with queues_lock:
+                        if not active_queues:
+                            gift_queue.put(data)
+                        else:
+                            for q in active_queues:
+                                q.put(data)
             except Exception as e:
                 # スレッド内のエラーは標準出力（Logs）に送る
                 print(f"WebSocket Message Error: {e}")
@@ -44,36 +52,56 @@ class FreeGiftReceiver:
 
     def on_close(self, ws, close_status_code, close_msg):
         print("WebSocket Closed")
-        self.is_running = False
+        # ② 修正：ここでは self.is_running を False にせず、run内の再接続ロジックに任せる
 
     def on_open(self, ws):
         """接続直後に購読命令(SUB)を送る（テストコードと同じ）"""
         ws.send(f"SUB\t{self.key}")
+        print(f"WebSocket Connected: Room {self.room_id}")
 
     def run(self):
-        """WebSocketのメインループ"""
+        """WebSocketのメインループ（② 修正：自動再接続機能を追加）"""
         ws_url = f"wss://{self.host}:443/"
-        self.ws = websocket.WebSocketApp(
-            ws_url,
-            on_message=self.on_message,
-            on_error=self.on_error,
-            on_close=self.on_close,
-            on_open=self.on_open
-        )
-        self.ws.run_forever()
+        while self.is_running:
+            try:
+                self.ws = websocket.WebSocketApp(
+                    ws_url,
+                    on_message=self.on_message,
+                    on_error=self.on_error,
+                    on_close=self.on_close,
+                    on_open=self.on_open
+                )
+                # 30秒ごとにpingを送り、無通信による切断を防止
+                self.ws.run_forever(ping_interval=30, ping_timeout=10)
+            except Exception as e:
+                print(f"WebSocket Run Error: {e}")
+            
+            # 意図しない切断時、start()状態でいれば5秒後に再接続
+            if self.is_running:
+                print("WebSocket Reconnecting in 5 seconds...")
+                time.sleep(5)
 
     def start(self):
         """バックグラウンドで受信を開始"""
         if not self.is_running:
             self.is_running = True
+            # ① 修正：自身のキューをアクティブリストに登録
+            with queues_lock:
+                if gift_queue not in active_queues:
+                    active_queues.append(gift_queue)
+                    
             self.thread = threading.Thread(target=self.run, daemon=True)
             self.thread.start()
 
     def stop(self):
         """受信を停止"""
+        self.is_running = False
         if self.ws:
             self.ws.close()
-            self.is_running = False
+        # ① 修正：停止時にリストから除外
+        with queues_lock:
+            if gift_queue in active_queues:
+                active_queues.remove(gift_queue)
 
 def get_streaming_server_info(room_id):
     """
