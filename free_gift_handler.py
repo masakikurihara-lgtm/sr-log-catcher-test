@@ -20,14 +20,18 @@ class FreeGiftReceiver:
         if message.startswith("MSG"):
             try:
                 parts = message.split("\t")
-                if len(parts) < 3:
-                    return
+                if len(parts) < 3: return
                 data = json.loads(parts[2])
+                
+                # ギフトメッセージ(t=2)
                 if data.get("t") == 2:
-                    # このレシーバーに割り当てられた専用キューに入れる
-                    self.target_queue.put(data)
+                    # 重要：初期化時に渡された target_queue に入れる
+                    if self.target_queue is not None:
+                        self.target_queue.put(data)
+                    else:
+                        print("Error: target_queue is None")
             except Exception as e:
-                print(f"WebSocket Message Error: {e}")
+                print(f"Message Parse Error: {e}")
 
     def on_error(self, ws, error):
         print(f"WebSocket Error: {error}")

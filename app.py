@@ -533,40 +533,30 @@ if st.button("トラッキング開始", key="start_button"):
             
             # --- 新設：無償ギフト用の初期化 ---
             st.session_state.free_gift_log = []
-            # raw_free_gift_queue は使わず、セッション固有のキューを初期化
+            
+            # セッション固有のキューを確実に作成（既存なら空にする）
             if "free_gift_queue" not in st.session_state:
                 st.session_state.free_gift_queue = queue.Queue()
-            else:
-                # すでにキューがある場合は中身を空にする（古い配信の残骸を消す）
-                while not st.session_state.free_gift_queue.empty():
-                    try:
-                        st.session_state.free_gift_queue.get_nowait()
-                    except:
-                        break
             
-            # 1. 無償ギフトマスター（名前・画像・ポイント）の取得
+            # キューを完全に空にする（重要）
+            while not st.session_state.free_gift_queue.empty():
+                try: st.session_state.free_gift_queue.get_nowait()
+                except: break
+
             update_free_gift_master(input_room_id)
-            
-            # 2. WebSocket接続情報の取得
             streaming_info = get_streaming_server_info(input_room_id)
             
             if streaming_info:
-                # 3. 既存の受信機が動いていれば停止
                 if st.session_state.get("ws_receiver"):
-                    try:
-                        st.session_state.ws_receiver.stop()
-                    except:
-                        pass
+                    try: st.session_state.ws_receiver.stop()
+                    except: pass
                 
-                # 4. 無償ギフト受信機（WebSocket）をバックグラウンドで起動
-                # 修正ポイント：セッション固有のキューを直接レシーバーに渡します
-                from free_gift_handler import FreeGiftReceiver
-                
+                # 修正版：キューを明示的に渡す
                 receiver = FreeGiftReceiver(
                     room_id=input_room_id,
                     host=streaming_info["host"],
                     key=streaming_info["key"],
-                    target_queue=st.session_state.free_gift_queue  # ←ここが重要
+                    target_queue=st.session_state.free_gift_queue  # ここで渡す！
                 )
                 receiver.start()
                 st.session_state.ws_receiver = receiver
@@ -753,38 +743,37 @@ if st.session_state.is_tracking:
         import time
         
         # --- 本体側：データ取り出し部分のブラッシュアップ ---
-        current_queue = st.session_state.get("free_gift_queue")
-
-        if current_queue:
-            # キューに溜まっているものを全て処理
-            while not current_queue.empty():
+        # --- データ取り出し ---
+        q = st.session_state.get("free_gift_queue")
+        if q:
+            while not q.empty():
                 try:
-                    raw_data = current_queue.get_nowait()
-                    # SHOWROOMのデータでは数値で来ることが多いので、文字列に変換
-                    gift_id = str(raw_data.get("g"))
+                    raw_data = q.get_nowait()
+                    # 1. 取得したIDを必ず「文字列」にする
+                    g_id = str(raw_data.get("g")) 
                     
-                    # マスターデータのキーも文字列であることを確認して取得
-                    master = st.session_state.get("free_gift_master", {}).get(gift_id)
+                    # 2. マスターを安全に取得
+                    master_map = st.session_state.get("free_gift_master", {})
                     
-                    if not master:
-                        # マスターにない場合は無視
-                        continue
-                    
-                    new_entry = {
-                        "created_at": raw_data.get("created_at", int(time.time())),
-                        "user_id": raw_data.get("u"),
-                        "name": raw_data.get("ac"),
-                        "gift_id": gift_id,
-                        "gift_name": master.get("name"),
-                        "point": master.get("point", 1),
-                        "num": raw_data.get("n", 1),
-                        "image": master.get("image", "")
-                    }
-                    
-                    st.session_state.free_gift_log.insert(0, new_entry)
-                        
-                except Exception as e:
-                    print(f"Queue Process Error: {e}")
+                    # 3. 照合（マスターのキーも文字列であることを期待）
+                    if g_id in master_map:
+                        master = master_map[g_id]
+                        new_entry = {
+                            "created_at": raw_data.get("created_at", int(time.time())),
+                            "user_id": raw_data.get("u"),
+                            "name": raw_data.get("ac"),
+                            "gift_id": g_id,
+                            "gift_name": master.get("name"),
+                            "point": 1,
+                            "num": raw_data.get("n", 1),
+                            "image": master.get("image", "")
+                        }
+                        st.session_state.free_gift_log.insert(0, new_entry)
+                    else:
+                        # デバッグ用（表示に慣れたら消してOK）
+                        # print(f"DEBUG: Gift ID {g_id} not in master")
+                        pass
+                except Exception:
                     break
             
             # 取得が終わったら新しい順にソート（created_atでソート）
