@@ -9,7 +9,7 @@ import ftplib
 import io
 import datetime
 import os
-from free_gift_handler import FreeGiftReceiver, get_streaming_server_info, update_free_gift_master, gift_queue
+from free_gift_handler import FreeGiftReceiver, get_streaming_server_info, update_free_gift_master
 
 
 def upload_csv_to_ftp(filename: str, csv_buffer: io.BytesIO):
