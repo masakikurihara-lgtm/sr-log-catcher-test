@@ -6,74 +6,100 @@ import queue
 import time
 import streamlit as st
 
-# --- 通信スレッドとメイン画面の間でデータを安全に受け渡すためのキュー ---
-# これにより、WebSocketスレッドがエラーで止まるのを防ぎます
-gift_queue = queue.Queue()
-
 class FreeGiftReceiver:
-    def __init__(self, room_id, host, key):
+    def __init__(self, room_id, host, key, target_queue):
         self.room_id = room_id
         self.host = host
         self.key = key
         self.ws = None
         self.thread = None
         self.is_running = False
+        self.target_queue = target_queue  # セッション固有のキューを受け取る
 
     def on_message(self, ws, message):
-        """WebSocketからメッセージを受信した時の処理"""
         if message.startswith("MSG"):
             try:
                 parts = message.split("\t")
                 if len(parts) < 3:
                     return
-                
-                # JSON部分を解析
                 data = json.loads(parts[2])
-
-                # ギフトメッセージ(t=2)のみを対象
                 if data.get("t") == 2:
-                    # 重要：スレッド内から st.session_state を触ると落ちるため、
-                    # 安全な gift_queue にデータを放り込むだけに留めます
-                    gift_queue.put(data)
+                    # このレシーバーに割り当てられた専用キューに入れる
+                    self.target_queue.put(data)
             except Exception as e:
-                # スレッド内のエラーは標準出力（Logs）に送る
                 print(f"WebSocket Message Error: {e}")
 
     def on_error(self, ws, error):
         print(f"WebSocket Error: {error}")
 
     def on_close(self, ws, close_status_code, close_msg):
-        print("WebSocket Closed")
+        print(f"WebSocket Closed: {close_msg}")
         self.is_running = False
 
     def on_open(self, ws):
-        """接続直後に購読命令(SUB)を送る（テストコードと同じ）"""
+        # 接続維持のための設定
         ws.send(f"SUB\t{self.key}")
+        print(f"WebSocket Connected: Room {self.room_id}")
 
     def run(self):
-        """WebSocketのメインループ"""
+        """WebSocketのメインループ（切断時に再試行する）"""
         ws_url = f"wss://{self.host}:443/"
-        self.ws = websocket.WebSocketApp(
-            ws_url,
-            on_message=self.on_message,
-            on_error=self.on_error,
-            on_close=self.on_close,
-            on_open=self.on_open
-        )
-        self.ws.run_forever()
+        while self.is_running:
+            try:
+                self.ws = websocket.WebSocketApp(
+                    ws_url,
+                    on_message=self.on_message,
+                    on_error=self.on_error,
+                    on_close=self.on_close,
+                    on_open=self.on_open
+                )
+                # ping_intervalを追加して接続を維持しやすくする
+                self.ws.run_forever(ping_interval=30, ping_timeout=10)
+            except Exception as e:
+                print(f"WebSocket Run Error: {e}")
+            
+            # 意図しない切断の場合、5秒待って再試行
+            if self.is_running:
+                print("WebSocket Reconnecting in 5 seconds...")
+                time.sleep(5)
 
     def start(self):
-        """バックグラウンドで受信を開始"""
         if not self.is_running:
             self.is_running = True
             self.thread = threading.Thread(target=self.run, daemon=True)
             self.thread.start()
 
     def stop(self):
-        """受信を停止"""
+        self.is_running = False
         if self.ws:
             self.ws.close()
-            self.is_running = False
+
+# --- Streamlit側で呼び出す管理関数 ---
+
+def get_gift_queue():
+    """セッションごとに固有のキューを返す"""
+    if "free_gift_queue" not in st.session_state:
+        st.session_state.free_gift_queue = queue.Queue()
+    return st.session_state.free_gift_queue
+
+def init_free_gift_receiver(room_id):
+    """
+    メイン画面から呼び出し。
+    レシーバーが未起動、または古い場合に初期化して起動する。
+    """
+    # 接続情報の取得
+    info = get_streaming_server_info(room_id)
+    if not info:
+        return None
+    
+    # セッション固有のキューを取得
+    user_queue = get_gift_queue()
+    
+    # レシーバーの作成
+    receiver = FreeGiftReceiver(room_id, info['host'], info['key'], user_queue)
+    return receiver
+
+
 
 def get_streaming_server_info(room_id):
     """

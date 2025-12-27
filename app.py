@@ -532,13 +532,22 @@ if st.button("トラッキング開始", key="start_button"):
             
             # --- 新設：無償ギフト用の初期化 ---
             st.session_state.free_gift_log = []
-            st.session_state.raw_free_gift_queue = []
+            # raw_free_gift_queue は使わず、セッション固有のキューを初期化
+            if "free_gift_queue" not in st.session_state:
+                st.session_state.free_gift_queue = queue.Queue()
+            else:
+                # すでにキューがある場合は中身を空にする（古い配信の残骸を消す）
+                while not st.session_state.free_gift_queue.empty():
+                    try:
+                        st.session_state.free_gift_queue.get_nowait()
+                    except:
+                        break
             
             # 1. 無償ギフトマスター（名前・画像・ポイント）の取得
-            update_free_gift_master(input_room_id) # ← コメント解除
+            update_free_gift_master(input_room_id)
             
             # 2. WebSocket接続情報の取得
-            streaming_info = get_streaming_server_info(input_room_id) # ← コメント解除
+            streaming_info = get_streaming_server_info(input_room_id)
             
             if streaming_info:
                 # 3. 既存の受信機が動いていれば停止
@@ -549,11 +558,14 @@ if st.button("トラッキング開始", key="start_button"):
                         pass
                 
                 # 4. 無償ギフト受信機（WebSocket）をバックグラウンドで起動
-                # 引数名を free_gift_handler.py の定義（host, key）に合わせて修正します
+                # 修正ポイント：セッション固有のキューを直接レシーバーに渡します
+                from free_gift_handler import FreeGiftReceiver
+                
                 receiver = FreeGiftReceiver(
                     room_id=input_room_id,
-                    host=streaming_info["host"],  # bcsvr_host から host に変更
-                    key=streaming_info["key"]    # bcsvr_key から key に変更
+                    host=streaming_info["host"],
+                    key=streaming_info["key"],
+                    target_queue=st.session_state.free_gift_queue  # ←ここが重要
                 )
                 receiver.start()
                 st.session_state.ws_receiver = receiver
@@ -736,46 +748,49 @@ if st.session_state.is_tracking:
         st.session_state.fan_list = fan_list
         st.session_state.total_fan_count = total_fan_count
 
-        # --- 無償ギフト：キューからデータを取り出してログに変換 ---
+        # --- 無償ギフト：セッション固有のキューからデータを取り出してログに変換 ---
         import time
-        while not gift_queue.empty():
-            try:
-                raw_data = gift_queue.get_nowait()
-                gift_id = raw_data.get("g")
-                
-                # 💡 ここが重要：マスター（1ptのギフトだけが入っている辞書）に
-                # 存在しないギフトID（20ptなど）は、このループでは処理せず無視（continue）する
-                # これにより、20ptは「スペシャルギフト」側にのみ表示されるようになります
-                master = st.session_state.get("free_gift_master", {}).get(gift_id)
-                if not master:
-                    continue
-                
-                master = st.session_state.free_gift_master[gift_id]
-                
-                new_entry = {
-                    "created_at": raw_data.get("created_at", int(time.time())),
-                    "user_id": raw_data.get("u"),
-                    "name": raw_data.get("ac"),
-                    "avatar_id": raw_data.get("av"),
-                    "gift_id": gift_id,
-                    "gift_name": master.get("name"),
-                    "point": master.get("point", 1),
-                    "num": raw_data.get("n", 1),
-                    "image": master.get("image", "")
-                }
-                
-                # ログの先頭に追加（新しい順）
-                st.session_state.free_gift_log.insert(0, new_entry)
-                
-                # ログが溜まりすぎないよう制限（直近100件までなど）
-                # if len(st.session_state.free_gift_log) > 100:
-                #     st.session_state.free_gift_log = st.session_state.free_gift_log[:100]
+        
+        # セッション固有のキューを取得
+        current_queue = st.session_state.get("free_gift_queue")
+
+        if current_queue:
+            while not current_queue.empty():
+                try:
+                    # 共通の gift_queue ではなく current_queue から取得
+                    raw_data = current_queue.get_nowait()
+                    # gift_idは念のため文字列に変換（マスターのキーと合わせるため）
+                    gift_id = str(raw_data.get("g"))
                     
-            except Exception as e:
-                break
+                    # マスターに存在するかチェック
+                    master_map = st.session_state.get("free_gift_master", {})
+                    master = master_map.get(gift_id)
+                    
+                    if not master:
+                        continue
+                    
+                    new_entry = {
+                        "created_at": raw_data.get("created_at", int(time.time())),
+                        "user_id": raw_data.get("u"),
+                        "name": raw_data.get("ac"),
+                        "avatar_id": raw_data.get("av"),
+                        "gift_id": gift_id,
+                        "gift_name": master.get("name"),
+                        "point": master.get("point", 1),
+                        "num": raw_data.get("n", 1),
+                        "image": master.get("image", "")
+                    }
+                    
+                    # ログの先頭に追加（新しい順）
+                    st.session_state.free_gift_log.insert(0, new_entry)
+                        
+                except Exception as e:
+                    # キューが空になった場合やエラー時はループを抜ける
+                    break
             
-            # 新しい順にソート
-            st.session_state.free_gift_log.sort(key=lambda x: x["created_at"], reverse=True)
+            # 取得が終わったら新しい順にソート（created_atでソート）
+            if st.session_state.free_gift_log:
+                st.session_state.free_gift_log.sort(key=lambda x: x["created_at"], reverse=True)
 
         # --- 無償ギフトログ自動保存 (100件ごと) ---
         prev_free_gift_count = st.session_state.get("prev_free_gift_count", 0)
