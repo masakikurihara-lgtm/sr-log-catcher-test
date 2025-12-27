@@ -9,6 +9,7 @@ import ftplib
 import io
 import datetime
 import os
+import queue
 from free_gift_handler import FreeGiftReceiver, get_streaming_server_info, update_free_gift_master
 
 
