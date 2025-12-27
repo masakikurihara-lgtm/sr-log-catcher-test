@@ -752,29 +752,28 @@ if st.session_state.is_tracking:
         # --- 無償ギフト：セッション固有のキューからデータを取り出してログに変換 ---
         import time
         
-        # セッション固有のキューを取得
+        # --- 本体側：データ取り出し部分のブラッシュアップ ---
         current_queue = st.session_state.get("free_gift_queue")
 
         if current_queue:
+            # キューに溜まっているものを全て処理
             while not current_queue.empty():
                 try:
-                    # 共通の gift_queue ではなく current_queue から取得
                     raw_data = current_queue.get_nowait()
-                    # gift_idは念のため文字列に変換（マスターのキーと合わせるため）
+                    # SHOWROOMのデータでは数値で来ることが多いので、文字列に変換
                     gift_id = str(raw_data.get("g"))
                     
-                    # マスターに存在するかチェック
-                    master_map = st.session_state.get("free_gift_master", {})
-                    master = master_map.get(gift_id)
+                    # マスターデータのキーも文字列であることを確認して取得
+                    master = st.session_state.get("free_gift_master", {}).get(gift_id)
                     
                     if not master:
+                        # マスターにない場合は無視
                         continue
                     
                     new_entry = {
                         "created_at": raw_data.get("created_at", int(time.time())),
                         "user_id": raw_data.get("u"),
                         "name": raw_data.get("ac"),
-                        "avatar_id": raw_data.get("av"),
                         "gift_id": gift_id,
                         "gift_name": master.get("name"),
                         "point": master.get("point", 1),
@@ -782,11 +781,10 @@ if st.session_state.is_tracking:
                         "image": master.get("image", "")
                     }
                     
-                    # ログの先頭に追加（新しい順）
                     st.session_state.free_gift_log.insert(0, new_entry)
                         
                 except Exception as e:
-                    # キューが空になった場合やエラー時はループを抜ける
+                    print(f"Queue Process Error: {e}")
                     break
             
             # 取得が終わったら新しい順にソート（created_atでソート）

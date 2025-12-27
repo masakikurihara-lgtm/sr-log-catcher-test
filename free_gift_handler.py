@@ -42,8 +42,11 @@ class FreeGiftReceiver:
         print(f"WebSocket Connected: Room {self.room_id}")
 
     def run(self):
-        """WebSocketのメインループ（切断時に再試行する）"""
-        ws_url = f"wss://{self.host}:443/"
+        """WebSocketのメインループ"""
+        # hostに wss:// が含まれていないことを確実にする
+        clean_host = self.host.replace("wss://", "").replace("/", "")
+        ws_url = f"wss://{clean_host}:443/"
+        
         while self.is_running:
             try:
                 self.ws = websocket.WebSocketApp(
@@ -53,14 +56,12 @@ class FreeGiftReceiver:
                     on_close=self.on_close,
                     on_open=self.on_open
                 )
-                # ping_intervalを追加して接続を維持しやすくする
-                self.ws.run_forever(ping_interval=30, ping_timeout=10)
+                # 重要: 接続維持を強化
+                self.ws.run_forever(ping_interval=20, ping_timeout=10)
             except Exception as e:
                 print(f"WebSocket Run Error: {e}")
             
-            # 意図しない切断の場合、5秒待って再試行
             if self.is_running:
-                print("WebSocket Reconnecting in 5 seconds...")
                 time.sleep(5)
 
     def start(self):
