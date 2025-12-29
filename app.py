@@ -1436,23 +1436,25 @@ if st.session_state.gift_log or st.session_state.free_gift_log:
         # 4. ユーザー・ギフトごとの集計
         grouped = (
             combined_agg_df.groupby(['ユーザーID', 'ギフト名', 'ポイント'], as_index=False)
-                           .agg({'個数': 'sum'})
+                            .agg({'個数': 'sum'})
         )
         grouped['ユーザー名'] = grouped['ユーザーID'].map(latest_all_names)
-        grouped['行ポイント'] = grouped['個数'] * grouped['ポイント']
+        # 🌟 ギフト単位の合計Ptを算出
+        grouped['ギフト単位Pt'] = grouped['個数'] * grouped['ポイント']
 
         # 5. ユーザー単位の総ポイントを計算
-        user_total = grouped.groupby('ユーザーID')['行ポイント'].sum().reset_index()
-        user_total = user_total.rename(columns={'行ポイント': 'ユーザー総ポイント'})
+        user_total = grouped.groupby('ユーザーID')['ギフト単位Pt'].sum().reset_index()
+        user_total = user_total.rename(columns={'ギフト単位Pt': 'ユーザー総ポイント'})
         grouped = grouped.merge(user_total, on='ユーザーID', how='left')
 
-        # 6. ソート
+        # 6. ソート順の修正
+        # 🌟 1) ユーザー総ポイント(降) > 2) ユーザーID(昇) > 3) ギフト単位Pt(降)
         grouped_sorted = grouped.sort_values(
-            by=['ユーザー総ポイント', 'ユーザーID', 'ポイント'],
+            by=['ユーザー総ポイント', 'ユーザーID', 'ギフト単位Pt'],
             ascending=[False, True, False]
         )
 
-        # 7. 表示用データの整形（★見出し名を変更）
+        # 7. 表示用データの整形
         display_rows = []
         prev_user_id = None
         for _, row in grouped_sorted.iterrows():
@@ -1464,6 +1466,8 @@ if st.session_state.gift_log or st.session_state.free_gift_log:
                 'ギフト名': row['ギフト名'],
                 '個数（合計）': row['個数'],
                 'ポイント': row['ポイント'],
+                # 🌟 新規追加項目
+                'ギフト単位Pt（※単純合計値）': int(row['ギフト単位Pt']),
                 '総貢献Pt（※単純合計値）': int(row['ユーザー総ポイント']) if is_new_user else ''
             })
             prev_user_id = curr_user_id
