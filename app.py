@@ -1049,7 +1049,7 @@ if st.session_state.is_tracking and st.session_state.room_id:
                 
                 buf_s1 = io.BytesIO()
                 s_disp[['ギフト時間', 'ユーザー名', 'ユーザーID', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']].to_csv(buf_s1, index=False, encoding='utf-8-sig')
-                st.download_button("SPギフトログをダウンロード", buf_s1.getvalue(), "sp_gift_all.csv", "text/csv", key="dl_s1")
+                st.download_button("スペシャルギフトログをダウンロード", buf_s1.getvalue(), "sp_gift_all.csv", "text/csv", key="dl_s1")
 
             # 2. ギフト単位合算
             with st.expander("🎁 ユーザー単位でギフト合算集計", expanded=False):
