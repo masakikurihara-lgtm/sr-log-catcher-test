@@ -1138,12 +1138,12 @@ if st.session_state.gift_log:
     # 総ポイントをマージ
     grouped = grouped.merge(user_total, on='ユーザーID', how='left')
 
-    # ソート：
+    # ソート順の変更：
     # 1) ユーザー総ポイント（降順）
     # 2) ユーザーID（同一ユーザーのデータを固める）
-    # 3) ギフトポイント（降順）
+    # 3) 合計ポイント（降順）：そのギフトでの合計Ptが高い順
     grouped_sorted = grouped.sort_values(
-        by=['ユーザー総ポイント', 'ユーザーID', 'ポイント'],
+        by=['ユーザー総ポイント', 'ユーザーID', '合計ポイント'],
         ascending=[False, True, False]
     )
 
