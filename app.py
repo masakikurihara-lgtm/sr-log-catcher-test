@@ -1321,7 +1321,7 @@ st.markdown("#### 🎁🎈 スペシャル＆無償ギフトログ一覧表")
 
 combined_list = []
 
-# 1. スペシャルギフトの準備（既存のロジックで整形）
+# 1. スペシャルギフトの準備
 if st.session_state.gift_log:
     s_df = pd.DataFrame(st.session_state.gift_log)
     if st.session_state.gift_list_map:
@@ -1330,27 +1330,37 @@ if st.session_state.gift_log:
         s_df['gift_id'] = s_df['gift_id'].astype(str)
         s_df = s_df.set_index('gift_id').join(gift_info_df, on='gift_id', lsuffix='_u', rsuffix='_g').reset_index()
         
-        # マージ用にカラム名を統一
+        # カラム名の整理と合計Pt算出
         s_df = s_df.rename(columns={
             'name_u': 'ユーザー名', 'name_g': 'ギフト名', 'num': '個数', 
             'point': 'ポイント', 'created_at': 'raw_time', 'user_id': 'ユーザーID'
         })
-        combined_list.append(s_df[['raw_time', 'ユーザー名', 'ギフト名', '個数', 'ポイント', 'ユーザーID']])
+        # 数値変換と計算
+        c_num = pd.to_numeric(s_df['個数'], errors='coerce').fillna(0)
+        c_pt = pd.to_numeric(s_df['ポイント'], errors='coerce').fillna(0)
+        s_df['合計Pt（※単純合計値）'] = (c_num * c_pt).astype(int)
+        
+        combined_list.append(s_df[['raw_time', 'ユーザー名', 'ユーザーID', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']])
 
-# 2. 無償ギフトの準備（既存のロジックで整形）
+# 2. 無償ギフトの準備
 if st.session_state.free_gift_log:
     f_df = pd.DataFrame(st.session_state.free_gift_log)
     f_df = f_df.rename(columns={
         'name': 'ユーザー名', 'gift_name': 'ギフト名', 'num': '個数', 
         'point': 'ポイント', 'created_at': 'raw_time', 'user_id': 'ユーザーID'
     })
-    combined_list.append(f_df[['raw_time', 'ユーザー名', 'ギフト名', '個数', 'ポイント', 'ユーザーID']])
+    # 数値変換と計算
+    f_num = pd.to_numeric(f_df['個数'], errors='coerce').fillna(0)
+    f_pt = pd.to_numeric(f_df['ポイント'], errors='coerce').fillna(0)
+    f_df['合計Pt（※単純合計値）'] = (f_num * f_pt).astype(int)
+    
+    combined_list.append(f_df[['raw_time', 'ユーザー名', 'ユーザーID', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']])
 
 # 3. マージとソート
 if combined_list:
     merged_df = pd.concat(combined_list, ignore_index=True)
     
-    # 時間で降順ソート（新しい順）
+    # 時間で降順ソート
     merged_df = merged_df.sort_values(by='raw_time', ascending=False)
     
     # 表示用に時間をJST文字列に変換
@@ -1358,14 +1368,17 @@ if combined_list:
         merged_df['raw_time'], unit='s'
     ).dt.tz_localize('UTC').dt.tz_convert(JST).dt.strftime("%Y-%m-%d %H:%M:%S")
     
-    # カラム順を整理
-    display_cols = ['ギフト時間', 'ユーザー名', 'ギフト名', '個数', 'ポイント', 'ユーザーID']
+    # --- 🌟 表示とCSVの切り分け ---
+    # 画面表示用（ユーザーIDを含まない）
+    display_cols_all = ['ギフト時間', 'ユーザー名', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']
+    # CSV出力用（ユーザーIDを含む）
+    csv_cols_all = ['ギフト時間', 'ユーザー名', 'ユーザーID', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']
     
-    st.dataframe(merged_df[display_cols], use_container_width=True, hide_index=True)
+    st.dataframe(merged_df[display_cols_all], use_container_width=True, hide_index=True)
     
     # 4. CSVダウンロードボタン
     buffer = io.BytesIO()
-    merged_df[display_cols].to_csv(buffer, index=False, encoding='utf-8-sig')
+    merged_df[csv_cols_all].to_csv(buffer, index=False, encoding='utf-8-sig')
     buffer.seek(0)
     st.download_button(
         label="スペシャル＆無償ギフトログをCSVでダウンロード",
