@@ -1084,6 +1084,85 @@ else:
 
 st.markdown("---")
 
+
+if st.session_state.gift_log:
+    # 1. データの準備
+    agg_df = pd.DataFrame(st.session_state.gift_log)
+    
+    # 時間を計算用に datetime 型として保持（まだ文字列変換しない）
+    agg_df['created_at_dt'] = pd.to_datetime(agg_df['created_at'], unit='s')
+    
+    # 2. ギフト情報の結合
+    if st.session_state.gift_list_map:
+        gift_info_map = pd.DataFrame.from_dict(st.session_state.gift_list_map, orient='index')
+        gift_info_map.index = gift_info_map.index.astype(str)
+        agg_df['gift_id'] = agg_df['gift_id'].astype(str)
+        agg_df = agg_df.set_index('gift_id').join(gift_info_map, on='gift_id', lsuffix='_u', rsuffix='_g').reset_index()
+
+    # 3. 集計処理 (ユーザーIDとギフトIDをキーにする)
+    # 個数は「合計(sum)」、時間は「最大値(max) = 最新」を取得
+    # pointは同じギフトなら同じはずだが、集計に含めるために「第一要素(first)」を取得
+    summary_df = agg_df.groupby(['user_id', 'gift_id'], as_index=False).agg({
+        'num': 'sum',
+        'created_at_dt': 'max',
+        'name_u': 'last',  # 最新のユーザー名を採用
+        'name_g': 'first', # ギフト名
+        'point': 'first'   # 単価
+    })
+
+    # 4. 数値変換と「合計Pt」の算出
+    summary_df['point'] = pd.to_numeric(summary_df['point'], errors='coerce').fillna(0)
+    summary_df['合計Pt（※単純合計値）'] = (summary_df['num'] * summary_df['point']).astype(int)
+
+    # 5. 日本語カラム名への変換
+    summary_df = summary_df.rename(columns={
+        'created_at_dt': '最新のギフト時間',
+        'name_u': 'ユーザー名',
+        'name_g': 'ギフト名',
+        'num': '個数',
+        'point': 'ポイント',
+        'user_id': 'ユーザーID'
+    })
+
+    # 6. 時間表示の整形 (JST変換)
+    summary_df['最新のギフト時間'] = summary_df['最新のギフト時間'].dt.tz_localize('UTC').dt.tz_convert(JST).dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    # 7. ソート (最新のギフト時間が新しい順)
+    summary_df = summary_df.sort_values(by='最新のギフト時間', ascending=False)
+
+    # --- 🌟 表示とCSVの切り分け ---
+    display_cols_sum = ['最新のギフト時間', 'ユーザー名', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']
+    csv_cols_sum = ['最新のギフト時間', 'ユーザー名', 'ユーザーID', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']
+
+    # 8. UI表示
+    st.markdown(
+        """
+        <h3 style="font-size:1.5em; margin-bottom:6px; margin-top:20px;">
+            🎁 スペシャルギフトログ一覧表
+            <span style="font-size:0.7em; opacity:0.8;">（ユーザー単位でギフト合算集計）</span>
+        </h3>
+        """,
+        unsafe_allow_html=True
+    )
+    st.dataframe(summary_df[display_cols_sum], use_container_width=True, hide_index=True)
+
+    # 9. CSVダウンロードボタン
+    buffer = io.BytesIO()
+    summary_df[csv_cols_sum].to_csv(buffer, index=False, encoding='utf-8-sig')
+    buffer.seek(0)
+    st.download_button(
+        label="合算ギフトログをCSVでダウンロード",
+        data=buffer,
+        file_name=f"gift_agg_log_{st.session_state.room_id}_{datetime.datetime.now(JST).strftime('%Y%m%d_%H%M%S')}.csv",
+        mime="text/csv",
+        key="download_agg_gift_csv"
+    )
+else:
+    st.info("集計できるスペシャルギフトデータがありません。")
+
+
+st.markdown("---")
+
 # ▼▼▼ スペシャルギフトログ一覧表 （ユーザー単位で集計） [名前変更対策版] ▼▼▼
 
 if st.session_state.gift_log:
