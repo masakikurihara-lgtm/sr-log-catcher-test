@@ -532,6 +532,7 @@ if st.button("トラッキング開始", key="start_button"):
 
         # ✅ 特別認証モード（mksp154851）の場合はバイパス許可
         if not st.session_state.get("is_master_access", False) and input_room_id not in valid_ids:
+            # 修正ポイント: 成功フラグを立てずにエラーを表示する
             st.error("指定されたルームIDが見つからないか、認証されていないルームIDか、現在配信中ではありません。")
         else:
             # --- 基本設定 ---
@@ -564,7 +565,6 @@ if st.button("トラッキング開始", key="start_button"):
                         pass
                 
                 # 4. 無償ギフト受信機（WebSocket）をバックグラウンドで起動
-                # 引数名を free_gift_handler.py の定義（host, key）に合わせて修正します
                 receiver = FreeGiftReceiver(
                     room_id=input_room_id,
                     host=streaming_info["host"],  # bcsvr_host から host に変更
