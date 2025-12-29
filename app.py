@@ -1179,12 +1179,45 @@ with tab_all:
 # ==========================================
 with tab_fan:
     if st.session_state.fan_list:
-        fan_df = pd.DataFrame(st.session_state.fan_list).rename(columns={'user_name': 'ユーザー名', 'level': 'レベル', 'point': 'ポイント', 'user_id': 'ユーザーID', 'rank': '順位'})
-        st.markdown("### 🏆 ファンリスト一覧")
-        st.dataframe(fan_df[['順位', 'レベル', 'ユーザー名', 'ポイント', 'ユーザーID']], use_container_width=True, hide_index=True)
+        # 一旦データフレーム化
+        raw_fan_df = pd.DataFrame(st.session_state.fan_list)
         
+        # カラム名の対応関係を定義（存在する時のみリネーム）
+        rename_map = {
+            'rank': '順位',
+            'level': 'レベル',
+            'user_name': 'ユーザー名',
+            'point': 'ポイント',
+            'user_id': 'ユーザーID'
+        }
+        
+        # 実際にデータフレームに存在するカラムだけを対象にする
+        existing_rename_map = {k: v for k, v in rename_map.items() if k in raw_fan_df.columns}
+        fan_df = raw_fan_df.rename(columns=existing_rename_map)
+        
+        # 表示したいカラムの優先順位リスト
+        desired_cols = ['順位', 'レベル', 'ユーザー名', 'ポイント', 'ユーザーID']
+        # 実際にリネーム後のデータフレームに存在するカラムだけを抽出
+        final_display_cols = [c for c in desired_cols if c in fan_df.columns]
+        
+        st.markdown("### 🏆 ファンリスト一覧")
+        
+        # 存在するカラムだけで表示（ここでのKeyErrorを回避）
+        st.dataframe(
+            fan_df[final_display_cols], 
+            use_container_width=True, 
+            hide_index=True
+        )
+        
+        # CSVダウンロード用
         buf_fan = io.BytesIO()
-        fan_df.to_csv(buf_fan, index=False, encoding='utf-8-sig')
-        st.download_button("ファンリストをダウンロード", buf_fan.getvalue(), "fan_list.csv", "text/csv", key="dl_f")
+        fan_df[final_display_cols].to_csv(buf_fan, index=False, encoding='utf-8-sig')
+        st.download_button(
+            label="ファンリストをダウンロード",
+            data=buf_fan.getvalue(),
+            file_name=f"fan_list_{st.session_state.room_id}.csv",
+            mime="text/csv",
+            key="dl_f_final"
+        )
     else:
         st.info("ファンデータがありません。")
