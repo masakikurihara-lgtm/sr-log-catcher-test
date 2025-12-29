@@ -1042,25 +1042,25 @@ if st.session_state.is_tracking and st.session_state.room_id:
             # 1. 全量一覧
             with st.expander("📜 スペシャルギフトログ一覧表 (全量)", expanded=True):
                 s_disp = s_raw.copy()
-                s_disp['時間'] = pd.to_datetime(s_disp['created_at'], unit='s').dt.tz_localize('UTC').dt.tz_convert(JST).dt.strftime("%Y-%m-%d %H:%M:%S")
+                s_disp['ギフト時間'] = pd.to_datetime(s_disp['created_at'], unit='s').dt.tz_localize('UTC').dt.tz_convert(JST).dt.strftime("%Y-%m-%d %H:%M:%S")
                 s_disp['合計Pt（※単純合計値）'] = (pd.to_numeric(s_disp['num']) * pd.to_numeric(s_disp['point'])).astype(int)
                 s_disp = s_disp.rename(columns={'name_u': 'ユーザー名', 'name_g': 'ギフト名', 'num': '個数', 'point': 'ポイント', 'user_id': 'ユーザーID'})
-                st.dataframe(s_disp[['時間', 'ユーザー名', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']], use_container_width=True, hide_index=True)
+                st.dataframe(s_disp[['ギフト時間', 'ユーザー名', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']], use_container_width=True, hide_index=True)
                 
                 buf_s1 = io.BytesIO()
-                s_disp[['時間', 'ユーザー名', 'ユーザーID', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']].to_csv(buf_s1, index=False, encoding='utf-8-sig')
+                s_disp[['ギフト時間', 'ユーザー名', 'ユーザーID', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']].to_csv(buf_s1, index=False, encoding='utf-8-sig')
                 st.download_button("SPギフト全量ログをCSVダウンロード", buf_s1.getvalue(), "sp_gift_all.csv", "text/csv", key="dl_s1")
 
             # 2. ギフト単位合算
             with st.expander("🎁 ユーザー単位でギフト合算集計", expanded=False):
                 s_sum = s_raw.groupby(['user_id', 'name_g', 'point'], as_index=False).agg({'num': 'sum', 'created_at': 'max', 'name_u': 'last'})
                 s_sum['合計Pt（※単純合計値）'] = (s_sum['num'] * pd.to_numeric(s_sum['point'])).astype(int)
-                s_sum['最新時間'] = pd.to_datetime(s_sum['created_at'], unit='s').dt.tz_localize('UTC').dt.tz_convert(JST).dt.strftime("%Y-%m-%d %H:%M:%S")
+                s_sum['最新ギフト時間'] = pd.to_datetime(s_sum['created_at'], unit='s').dt.tz_localize('UTC').dt.tz_convert(JST).dt.strftime("%Y-%m-%d %H:%M:%S")
                 s_sum = s_sum.rename(columns={'name_u': 'ユーザー名', 'name_g': 'ギフト名', 'num': '個数', 'point': 'ポイント', 'user_id': 'ユーザーID'}).sort_values('最新時間', ascending=False)
-                st.dataframe(s_sum[['最新時間', 'ユーザー名', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']], use_container_width=True, hide_index=True)
+                st.dataframe(s_sum[['最新ギフト時間', 'ユーザー名', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']], use_container_width=True, hide_index=True)
 
             # 3. ユーザー単位集計 (貢献順)
-            with st.expander("👤 ユーザー単位で集計 (総貢献順)", expanded=False):
+            with st.expander("👤 ユーザー単位で集計 (総貢献Pt順)", expanded=False):
                 s_user = s_raw.copy()
                 s_user['line_pt'] = pd.to_numeric(s_user['num']) * pd.to_numeric(s_user['point'])
                 latest_names = s_user.sort_values('created_at').groupby('user_id')['name_u'].last()
