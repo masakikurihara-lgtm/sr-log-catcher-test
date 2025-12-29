@@ -996,18 +996,7 @@ if st.session_state.is_tracking and st.session_state.room_id:
         f"および {st.session_state.total_fan_count} 名のファンのデータが蓄積されています。<br />"
         f"※誤ってリロード（再読み込み）してしまった、閉じてしまった等でダウンロードせずに消失してしまった場合、"
         f"24時間以内に運営ご相談いただければ、復元・ログ取得できる可能性があります。<br />"
-        f"※各タブを選択し、必要に応じて「>」で詳細を展開してください。</p>", 
-        unsafe_allow_html=True
-    )
-
-    st.markdown(
-        f"<p style='font-size:12px; color:#a1a1a1;'>"
-        f"※データは現在{len(st.session_state.comment_log)}件のコメントと、"
-        f"{len(st.session_state.gift_log)}件のスペシャルギフト、"
-        f"{len(st.session_state.free_gift_log)}件の無償ギフト、"
-        f"および{st.session_state.total_fan_count}名のファンのデータが蓄積されています。<br />"
-        f"※誤ってリロード（再読み込み）してしまった、閉じてしまった等でダウンロードせずに消失してしまった場合、"
-        f"24時間以内に運営ご相談いただければ、復元・ログ取得できる可能性があります。</p>", 
+        f"※各タブを選択し、必要に応じて「>」「＞」で詳細を展開してください。</p>", 
         unsafe_allow_html=True
     )
 
