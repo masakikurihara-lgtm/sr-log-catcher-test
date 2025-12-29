@@ -361,30 +361,45 @@ def get_and_update_log(log_type, room_id):
         st.warning(f"ルームID {room_id} の{log_type}ログ取得中にエラーが発生しました。配信中か確認してください。")
         return st.session_state.get(f"{log_type}_log", [])
 
-def get_gift_list(room_id):
-    if st.session_state.gift_list_map:
+def get_gift_list(room_id, force_update=False):
+    """
+    ギフトリストを取得しキャッシュする。
+    force_update=True、または未知のギフトIDに遭遇した際に再取得を行う。
+    """
+    # キャッシュがあり、強制更新でない場合はそのまま返す
+    if st.session_state.gift_list_map and not force_update:
         return st.session_state.gift_list_map
+
     url = f"{GIFT_LIST_API_URL}?room_id={room_id}"
     try:
         response = requests.get(url, headers=HEADERS, timeout=5)
         response.raise_for_status()
         data = response.json()
-        gift_list_map = {}
-        for gift in data.get('normal', []) + data.get('special', []):
-            try:
-                point_value = int(gift.get('point', 0))
-            except (ValueError, TypeError):
-                point_value = 0
-            gift_list_map[str(gift['gift_id'])] = {
-                'name': gift.get('gift_name', 'N/A'),
-                'point': point_value,
-                'image': gift.get('image', '')
-            }
-        st.session_state.gift_list_map = gift_list_map
-        return gift_list_map
-    except requests.exceptions.RequestException as e:
-        st.error(f"ルームID {room_id} のギフトリスト取得中にエラーが発生しました: {e}")
-        return {}
+        
+        new_map = {}
+        # すべてのカテゴリ（normal, special, enquete, seasonal等）を網羅的に走査
+        for category_key in data.keys():
+            category_items = data.get(category_key, [])
+            if isinstance(category_items, list):
+                for gift in category_items:
+                    gid = str(gift.get('gift_id'))
+                    try:
+                        p = int(gift.get('point', 0))
+                    except (ValueError, TypeError):
+                        p = 0
+                    
+                    new_map[gid] = {
+                        'name': gift.get('gift_name', 'N/A'),
+                        'point': p,
+                        'image': gift.get('image', ''),
+                        'free': gift.get('free', False)
+                    }
+        
+        st.session_state.gift_list_map = new_map
+        return new_map
+    except Exception as e:
+        print(f"Gift List API Error: {e}")
+        return st.session_state.get('gift_list_map', {})
 
 
 def get_fan_list(room_id):
@@ -843,19 +858,37 @@ if st.session_state.is_tracking:
         with col_gift:
             st.markdown("##### 🎁 スペシャルギフト")
             with st.container(border=True, height=500):
-                if st.session_state.gift_log and st.session_state.gift_list_map:
-                    # 💡 表示制限コントロール
-                    display_gifts = st.session_state.gift_log # [:100]
+                if st.session_state.gift_log:
+                    # 最新のキャッシュを取得
+                    current_map = st.session_state.gift_list_map
+                    display_gifts = st.session_state.gift_log
+                    
                     for log in display_gifts:
-                        gift_info = st.session_state.gift_list_map.get(str(log.get('gift_id')), {})
+                        gid = str(log.get('gift_id'))
+                        
+                        # --- 💡 未知のギフトID対策ロジック ---
+                        if gid not in current_map:
+                            # リストにないIDが来たら、その場でAPIを叩き直す
+                            current_map = get_gift_list(st.session_state.room_id, force_update=True)
+                        # ----------------------------------
+
+                        gift_info = current_map.get(gid, {})
                         if not gift_info:
-                            continue
+                            # それでも取得できない場合のフォールバック
+                            gift_name = "未知のギフト"
+                            gift_point = 0
+                            gift_image_url = log.get('image', '')
+                        else:
+                            gift_name = gift_info.get('name', 'N/A')
+                            gift_point = gift_info.get('point', 0)
+                            gift_image_url = log.get('image', gift_info.get('image', ''))
+
                         user_name = log.get('name', '匿名ユーザー')
                         created_at = datetime.datetime.fromtimestamp(log.get('created_at', 0), JST).strftime("%H:%M:%S")
-                        gift_point = gift_info.get('point', 0)
                         gift_count = log.get('num', 0)
                         total_point = gift_point * gift_count
                         
+                        # 背景色の判定
                         highlight_class = ""
                         if total_point >= 300000: highlight_class = "highlight-300000"
                         elif total_point >= 100000: highlight_class = "highlight-100000"
@@ -863,7 +896,6 @@ if st.session_state.is_tracking:
                         elif total_point >= 30000: highlight_class = "highlight-30000"
                         elif total_point >= 10000: highlight_class = "highlight-10000"
                         
-                        gift_image_url = log.get('image', gift_info.get('image', ''))
                         avatar_id = log.get('avatar_id', None)
                         avatar_url = f"https://static.showroom-live.com/image/avatar/{avatar_id}.png" if avatar_id else DEFAULT_AVATAR
                         
@@ -875,10 +907,10 @@ if st.session_state.is_tracking:
                                     <div class="gift-time">{created_at}</div>
                                     <div class="gift-user">{user_name}</div>
                                     <div class="gift-info-row">
-                                        <img src="{gift_image_url}" class="gift-image" />
+                                        <img src="{gift_image_url}" class="gift-image" title="{gift_name}" />
                                         <span>×{gift_count}</span>
                                     </div>
-                                    <div>{gift_point} pt</div>
+                                    <div style="font-size: 0.9em; color: #555;">{total_point} pt</div>
                                 </div>
                             </div>
                         </div>
