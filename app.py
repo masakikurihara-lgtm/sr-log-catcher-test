@@ -533,13 +533,16 @@ if st.button("トラッキング開始", key="start_button"):
         # ✅ 特別認証モード（mksp154851）の場合はバイパス許可
         if not st.session_state.get("is_master_access", False) and input_room_id not in valid_ids:
             st.error("指定されたルームIDが見つからないか、認証されていないルームIDか、現在配信中ではありません。")
-            # 💡 【重要】ここで処理を強制終了させます。
-            # これにより、このボタンの下にある「タブ表示」や「ログ詳細」の計算が走って
-            # エラー表示が上書きされるのを防ぎます。
-            st.stop() 
-            
         else:
-            # --- 基本設定 ---
+            # 💡 【追加チェック】配信サーバー情報を先に確認し、配信中でなければエラーにする
+            streaming_info = get_streaming_server_info(input_room_id)
+            
+            if not streaming_info:
+                # 認証済みIDであっても、配信サーバー情報が取れない＝配信していない
+                st.error("指定されたルームIDが見つからないか、認証されていないルームIDか、現在配信中ではありません。")
+                st.stop()
+
+            # --- 以下、配信中であることが確定した後の正常処理 ---
             st.session_state.is_tracking = True
             st.session_state.room_id = input_room_id
             
@@ -549,41 +552,31 @@ if st.button("トラッキング開始", key="start_button"):
             st.session_state.gift_list_map = {}
             st.session_state.fan_list = []
             st.session_state.total_fan_count = 0
-            
-            # --- 新設：無償ギフト用の初期化 ---
             st.session_state.free_gift_log = []
             st.session_state.raw_free_gift_queue = []
             
-            # 1. 無償ギフトマスター（名前・画像・ポイント）の取得
+            # マスター取得（サーバー情報は上で取得済みなのでそれを利用）
             update_free_gift_master(input_room_id)
             
-            # 2. WebSocket接続情報の取得
-            streaming_info = get_streaming_server_info(input_room_id)
+            # 3. 既存の受信機が動いていれば停止
+            if st.session_state.get("ws_receiver"):
+                try:
+                    st.session_state.ws_receiver.stop()
+                except:
+                    pass
             
-            if streaming_info:
-                # 3. 既存の受信機が動いていれば停止
-                if st.session_state.get("ws_receiver"):
-                    try:
-                        st.session_state.ws_receiver.stop()
-                    except:
-                        pass
-                
-                # 4. 無償ギフト受信機（WebSocket）をバックグラウンドで起動
-                receiver = FreeGiftReceiver(
-                    room_id=input_room_id,
-                    host=streaming_info["host"],
-                    key=streaming_info["key"]
-                )
-                receiver.start()
-                st.session_state.ws_receiver = receiver
-            else:
-                st.warning("配信サーバー情報の取得に失敗したため、無償ギフトのリアルタイム取得はスキップされます。")
+            # 4. 無償ギフト受信機（WebSocket）を起動
+            receiver = FreeGiftReceiver(
+                room_id=input_room_id,
+                host=streaming_info["host"],
+                key=streaming_info["key"]
+            )
+            receiver.start()
+            st.session_state.ws_receiver = receiver
 
-            # 正常時のみ再描画
             st.rerun()
     else:
         st.error("ルームIDを入力してください。")
-        st.stop() # ID未入力時も停止させる
 
 if st.button("トラッキング停止", key="stop_button", disabled=not st.session_state.is_tracking):
     if st.session_state.is_tracking:
