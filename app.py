@@ -1033,24 +1033,54 @@ st.markdown("---")
 
 # スペシャルギフトログ一覧表
 if st.session_state.gift_log:
+    # 1. ログのデータフレーム化
     gift_df = pd.DataFrame(st.session_state.gift_log)
     gift_df['created_at'] = pd.to_datetime(gift_df['created_at'], unit='s').dt.tz_localize('UTC').dt.tz_convert(JST).dt.strftime("%Y-%m-%d %H:%M:%S")
     
+    # 2. ギフト情報の結合
     if st.session_state.gift_list_map:
         gift_info_df = pd.DataFrame.from_dict(st.session_state.gift_list_map, orient='index')
         gift_info_df.index = gift_info_df.index.astype(str)
         
         gift_df['gift_id'] = gift_df['gift_id'].astype(str)
+        # 結合
         gift_df = gift_df.set_index('gift_id').join(gift_info_df, on='gift_id', lsuffix='_user_data', rsuffix='_gift_info').reset_index()
 
-    gift_df = gift_df.rename(columns={
-        'name_user_data': 'ユーザー名', 'name_gift_info': 'ギフト名', 'num': '個数', 'point': 'ポイント', 'created_at': 'ギフト時間', 'user_id': 'ユーザーID'
-    })
-    st.markdown("#### 🎁 スペシャルギフトログ一覧表")
-    st.dataframe(gift_df[gift_cols], use_container_width=True, hide_index=True)
+    # --- 🌟 ここから追加：合計ポイントの算出ロジック ---
+    # 数値として計算するために NaN を 0 に置換
+    calc_num = pd.to_numeric(gift_df['num'], errors='coerce').fillna(0)
+    calc_point = pd.to_numeric(gift_df['point'], errors='coerce').fillna(0)
     
+    # 合計Pt（※単純合計値）の列を作成
+    gift_df['合計Pt（※単純合計値）'] = (calc_num * calc_point).astype(int)
+    # ----------------------------------------------
+
+    # 列名の整理（リネーム）
+    gift_df = gift_df.rename(columns={
+        'name_user_data': 'ユーザー名', 
+        'name_gift_info': 'ギフト名', 
+        'num': '個数', 
+        'point': 'ポイント', 
+        'created_at': 'ギフト時間', 
+        'user_id': 'ユーザーID'
+    })
+
+    # 表示する列の指定（ユーザーIDを除外し、合計Ptを追加）
+    display_cols = ['ギフト時間', 'ユーザー名', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']
+    
+    # 画面表示用に存在する列だけを抽出（念のためのエラー回避）
+    gift_cols_to_show = [c for c in display_cols if c in gift_df.columns]
+
+    st.markdown("#### 🎁 スペシャルギフトログ一覧表")
+    # 画面上には「ユーザーID」を表示せず「合計Pt」を表示
+    st.dataframe(gift_df[gift_cols_to_show], use_container_width=True, hide_index=True)
+    
+    # CSVダウンロード処理
     buffer = io.BytesIO()
-    gift_df[gift_cols].to_csv(buffer, index=False, encoding='utf-8-sig')
+    # CSVには全データ（ユーザーID等も含む）を残したい場合は gift_df.to_csv、
+    # 画面表示と同じ項目にしたい場合は gift_df[gift_cols_to_show].to_csv とします。
+    # ここでは分析用に全データを保持した上で、見出しも適用したものを出力します。
+    gift_df[gift_cols_to_show].to_csv(buffer, index=False, encoding='utf-8-sig')
     buffer.seek(0)
     st.download_button(
         label="スペシャルギフトログをCSVでダウンロード",
