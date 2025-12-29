@@ -1023,7 +1023,7 @@ if st.session_state.is_tracking and st.session_state.room_id:
             
             buf_com = io.BytesIO()
             c_df[['コメント時間', 'ユーザー名', 'ユーザーID', 'コメント内容']].to_csv(buf_com, index=False, encoding='utf-8-sig')
-            st.download_button("コメントログをCSVダウンロード", buf_com.getvalue(), f"comment_log_{st.session_state.room_id}.csv", "text/csv", key="dl_c")
+            st.download_button("コメントログをダウンロード", buf_com.getvalue(), f"comment_log_{st.session_state.room_id}.csv", "text/csv", key="dl_c")
         else:
             st.info("コメントデータがありません。")
 
@@ -1049,7 +1049,7 @@ if st.session_state.is_tracking and st.session_state.room_id:
                 
                 buf_s1 = io.BytesIO()
                 s_disp[['ギフト時間', 'ユーザー名', 'ユーザーID', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']].to_csv(buf_s1, index=False, encoding='utf-8-sig')
-                st.download_button("SPギフト全量ログをCSVダウンロード", buf_s1.getvalue(), "sp_gift_all.csv", "text/csv", key="dl_s1")
+                st.download_button("SPギフトログをダウンロード", buf_s1.getvalue(), "sp_gift_all.csv", "text/csv", key="dl_s1")
 
             # 2. ギフト単位合算
             with st.expander("🎁 ユーザー単位でギフト合算集計", expanded=False):
@@ -1097,7 +1097,7 @@ if st.session_state.is_tracking and st.session_state.room_id:
                 
                 buf_f1 = io.BytesIO()
                 f_disp[['ギフト時間', 'ユーザー名', 'ユーザーID', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']].to_csv(buf_f1, index=False, encoding='utf-8-sig')
-                st.download_button("無償ギフト全量ログをCSVダウンロード", buf_f1.getvalue(), "free_gift_all.csv", "text/csv", key="dl_f1")
+                st.download_button("無償ギフトログをダウンロード", buf_f1.getvalue(), "free_gift_all.csv", "text/csv", key="dl_f1")
 
             with st.expander("🎈 ユーザー単位でギフト合算集計", expanded=False):
                 f_sum = f_raw.groupby(['user_id', 'gift_name', 'point'], as_index=False).agg({'num': 'sum', 'created_at': 'max', 'name': 'last'})
@@ -1150,7 +1150,7 @@ if st.session_state.is_tracking and st.session_state.room_id:
             all_df = pd.concat(combined_data, ignore_index=True)
             all_df['created_at_dt'] = pd.to_datetime(all_df['created_at'], unit='s')
 
-            with st.expander("📜 ＳＰ＆無償ギフトログ一覧表 (全量)", expanded=True):
+            with st.expander("📜 SP&無償ギフトログ一覧表 (全量)", expanded=True):
                 all_disp = all_df.sort_values('created_at', ascending=False).copy()
                 all_disp['ギフト時間'] = all_disp['created_at_dt'].dt.tz_localize('UTC').dt.tz_convert(JST).dt.strftime("%Y-%m-%d %H:%M:%S")
                 all_disp['合計Pt（※単純合計値）'] = (pd.to_numeric(all_disp['num']) * pd.to_numeric(all_disp['point'])).astype(int)
@@ -1159,7 +1159,7 @@ if st.session_state.is_tracking and st.session_state.room_id:
                 
                 buf_all1 = io.BytesIO()
                 all_disp[['ギフト時間', 'ユーザー名', 'ユーザーID', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']].to_csv(buf_all1, index=False, encoding='utf-8-sig')
-                st.download_button("SP&無償ギフト全量ログをCSVダウンロード", buf_all1.getvalue(), "combined_gift_all.csv", "text/csv", key="dl_all1")
+                st.download_button("SP&無償ギフトログをダウンロード", buf_all1.getvalue(), "combined_gift_all.csv", "text/csv", key="dl_all1")
 
             with st.expander("🎁🎈 ユーザー単位でギフト合算集計", expanded=False):
                 all_sum = all_df.groupby(['user_id', 'gift_name', 'point'], as_index=False).agg({'num': 'sum', 'created_at_dt': 'max', 'name': 'last'})
@@ -1206,6 +1206,6 @@ if st.session_state.is_tracking and st.session_state.room_id:
             
             buf_fan = io.BytesIO()
             fan_df[final_display_cols].to_csv(buf_fan, index=False, encoding='utf-8-sig')
-            st.download_button(label="ファンリストをCSVダウンロード", data=buf_fan.getvalue(), file_name=f"fan_list_{st.session_state.room_id}.csv", mime="text/csv", key="dl_f_final")
+            st.download_button(label="ファンリストをダウンロード", data=buf_fan.getvalue(), file_name=f"fan_list_{st.session_state.room_id}.csv", mime="text/csv", key="dl_f_final")
         else:
             st.info("ファンデータがありません。")
