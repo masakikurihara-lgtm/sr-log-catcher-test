@@ -531,18 +531,19 @@ if st.button("トラッキング開始", key="start_button"):
         valid_ids = set(str(x) for x in room_list_df.iloc[:,0].dropna().astype(int))
 
         # ✅ 特別認証モード（mksp154851）の場合はバイパス許可
-        if not st.session_state.get("is_master_access", False) and input_room_id not in valid_ids:
+        is_master = st.session_state.get("is_master_access", False)
+        if not is_master and input_room_id not in valid_ids:
             st.error("指定されたルームIDが見つからないか、認証されていないルームIDか、現在配信中ではありません。")
+            st.stop()  # 💡 エラー時はここで完全に止めて、下の「停止ボタン」を出さない
         else:
-            # 💡 【追加チェック】配信サーバー情報を先に確認し、配信中でなければエラーにする
+            # 💡 追加：配信サーバー情報を取得。取れない場合はエラー。
             streaming_info = get_streaming_server_info(input_room_id)
             
             if not streaming_info:
-                # 認証済みIDであっても、配信サーバー情報が取れない＝配信していない
                 st.error("指定されたルームIDが見つからないか、認証されていないルームIDか、現在配信中ではありません。")
-                st.stop()
-
-            # --- 以下、配信中であることが確定した後の正常処理 ---
+                st.stop()  # 💡 同様にここで停止
+            
+            # --- 正常系：ここから下は配信中であることが確定した場合のみ実行 ---
             st.session_state.is_tracking = True
             st.session_state.room_id = input_room_id
             
@@ -555,17 +556,16 @@ if st.button("トラッキング開始", key="start_button"):
             st.session_state.free_gift_log = []
             st.session_state.raw_free_gift_queue = []
             
-            # マスター取得（サーバー情報は上で取得済みなのでそれを利用）
+            # 1. 無償ギフトマスターの取得
             update_free_gift_master(input_room_id)
             
-            # 3. 既存の受信機が動いていれば停止
+            # 2. 受信機の起動
             if st.session_state.get("ws_receiver"):
                 try:
                     st.session_state.ws_receiver.stop()
                 except:
                     pass
             
-            # 4. 無償ギフト受信機（WebSocket）を起動
             receiver = FreeGiftReceiver(
                 room_id=input_room_id,
                 host=streaming_info["host"],
@@ -574,9 +574,11 @@ if st.button("トラッキング開始", key="start_button"):
             receiver.start()
             st.session_state.ws_receiver = receiver
 
+            # すべての準備が完了してから画面を更新（これで正常に稼働します）
             st.rerun()
     else:
         st.error("ルームIDを入力してください。")
+        st.stop()  # 💡 未入力時もここで停止
 
 if st.button("トラッキング停止", key="stop_button", disabled=not st.session_state.is_tracking):
     if st.session_state.is_tracking:
