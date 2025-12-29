@@ -526,32 +526,31 @@ input_room_id = st.text_input("対象のルームIDを入力してください:"
 
 # --- ボタンを縦並びに配置 ---
 if st.button("トラッキング開始", key="start_button"):
-    st.write("DEBUG: ボタンが押されました") # ←診断ログ1
     if input_room_id and input_room_id.isdigit():
-        st.write(f"DEBUG: IDチェックOK ({input_room_id})") # ←診断ログ2
-        
-        # ここで止まる場合は get_room_list 内部の問題です
         room_list_df = get_room_list()
         valid_ids = set(str(x) for x in room_list_df.iloc[:,0].dropna().astype(int))
-        st.write("DEBUG: ルームリスト取得完了") # ←診断ログ3
 
         # ✅ 特別認証モード（mksp154851）の場合はバイパス許可
         if not st.session_state.get("is_master_access", False) and input_room_id not in valid_ids:
+            # 【重要】エラーを表示して、このボタンの処理をここで終わらせる
             st.error("指定されたルームIDが見つからないか、認証されていないルームIDか、現在配信中ではありません。")
         else:
-            # --- 基本設定 ---
+            # --- 正常系：認証が通った場合のみここに入る ---
             st.session_state.is_tracking = True
             st.session_state.room_id = input_room_id
             
-            # --- 以下、元の初期化処理 ---
+            # --- 既存ログの初期化 ---
             st.session_state.comment_log = []
             st.session_state.gift_log = []
             st.session_state.gift_list_map = {}
             st.session_state.fan_list = []
             st.session_state.total_fan_count = 0
+            
+            # --- 新設：無償ギフト用の初期化 ---
             st.session_state.free_gift_log = []
             st.session_state.raw_free_gift_queue = []
             
+            # 各種マスター・サーバー情報取得
             update_free_gift_master(input_room_id)
             streaming_info = get_streaming_server_info(input_room_id)
             
@@ -572,9 +571,13 @@ if st.button("トラッキング開始", key="start_button"):
             else:
                 st.warning("配信サーバー情報の取得に失敗したため、無償ギフトのリアルタイム取得はスキップされます。")
 
+            # 【重要】成功した時だけ再描画してログ詳細を表示させる
             st.rerun()
     else:
         st.error("ルームIDを入力してください。")
+    
+    # ⚠️ もしここに st.rerun() や、別の画面更新処理がある場合は削除するか、
+    # この if st.button の外に影響が出ないようにしてください。
 
 if st.button("トラッキング停止", key="stop_button", disabled=not st.session_state.is_tracking):
     if st.session_state.is_tracking:
