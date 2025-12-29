@@ -1038,21 +1038,21 @@ with tab_sp:
         with st.expander("📜 スペシャルギフトログ一覧表 (全量)", expanded=True):
             s_disp = s_raw.copy()
             s_disp['時間'] = pd.to_datetime(s_disp['created_at'], unit='s').dt.tz_localize('UTC').dt.tz_convert(JST).dt.strftime("%Y-%m-%d %H:%M:%S")
-            s_disp['合計Pt'] = (pd.to_numeric(s_disp['num']) * pd.to_numeric(s_disp['point'])).astype(int)
+            s_disp['合計Pt（※単純合計値）'] = (pd.to_numeric(s_disp['num']) * pd.to_numeric(s_disp['point'])).astype(int)
             s_disp = s_disp.rename(columns={'name_u': 'ユーザー名', 'name_g': 'ギフト名', 'num': '個数', 'point': 'ポイント', 'user_id': 'ユーザーID'})
-            st.dataframe(s_disp[['時間', 'ユーザー名', 'ギフト名', '個数', 'ポイント', '合計Pt']], use_container_width=True, hide_index=True)
+            st.dataframe(s_disp[['時間', 'ユーザー名', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']], use_container_width=True, hide_index=True)
             
             buf_s1 = io.BytesIO()
-            s_disp[['時間', 'ユーザー名', 'ユーザーID', 'ギフト名', '個数', 'ポイント', '合計Pt']].to_csv(buf_s1, index=False, encoding='utf-8-sig')
-            st.download_button("スペシャル全量ログをダウンロード", buf_s1.getvalue(), "sp_gift_all.csv", "text/csv", key="dl_s1")
+            s_disp[['時間', 'ユーザー名', 'ユーザーID', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']].to_csv(buf_s1, index=False, encoding='utf-8-sig')
+            st.download_button("スペシャル全量ログをCSVダウンロード", buf_s1.getvalue(), "sp_gift_all.csv", "text/csv", key="dl_s1")
 
         # 2. ギフト単位合算
         with st.expander("🎁 ユーザー単位でギフト合算集計", expanded=False):
             s_sum = s_raw.groupby(['user_id', 'name_g', 'point'], as_index=False).agg({'num': 'sum', 'created_at': 'max', 'name_u': 'last'})
-            s_sum['合計Pt'] = (s_sum['num'] * pd.to_numeric(s_sum['point'])).astype(int)
+            s_sum['合計Pt（※単純合計値）'] = (s_sum['num'] * pd.to_numeric(s_sum['point'])).astype(int)
             s_sum['最新時間'] = pd.to_datetime(s_sum['created_at'], unit='s').dt.tz_localize('UTC').dt.tz_convert(JST).dt.strftime("%Y-%m-%d %H:%M:%S")
             s_sum = s_sum.rename(columns={'name_u': 'ユーザー名', 'name_g': 'ギフト名', 'num': '個数', 'point': 'ポイント', 'user_id': 'ユーザーID'}).sort_values('最新時間', ascending=False)
-            st.dataframe(s_sum[['最新時間', 'ユーザー名', 'ギフト名', '個数', 'ポイント', '合計Pt']], use_container_width=True, hide_index=True)
+            st.dataframe(s_sum[['最新時間', 'ユーザー名', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']], use_container_width=True, hide_index=True)
 
         # 3. ユーザー単位集計 (貢献順)
         with st.expander("👤 ユーザー単位で集計 (総貢献順)", expanded=False):
@@ -1068,8 +1068,8 @@ with tab_sp:
             for _, r in u_merged.iterrows():
                 u_rows.append({
                     'ユーザー名': latest_names[r['user_id']] if r['user_id'] != prev_id else '',
-                    'ギフト名': r['name_g'], '個数': r['num'], '単価': r['point'],
-                    'ギフト単位Pt': int(r['line_pt']), '総貢献Pt': int(r['総Pt']) if r['user_id'] != prev_id else ''
+                    'ギフト名': r['name_g'], '個数': r['num'], 'ポイント': r['point'],
+                    'ギフト単位Pt': int(r['line_pt']), '総貢献Pt（※単純合計値）': int(r['総Pt']) if r['user_id'] != prev_id else ''
                 })
                 prev_id = r['user_id']
             st.dataframe(pd.DataFrame(u_rows), use_container_width=True, hide_index=True)
@@ -1086,19 +1086,22 @@ with tab_free:
         with st.expander("📜 無償ギフトログ一覧表 (全量)", expanded=True):
             f_disp = f_raw.copy()
             f_disp['時間'] = pd.to_datetime(f_disp['created_at'], unit='s').dt.tz_localize('UTC').dt.tz_convert(JST).dt.strftime("%Y-%m-%d %H:%M:%S")
-            f_disp['合計Pt'] = (pd.to_numeric(f_disp['num']) * pd.to_numeric(f_disp['point'])).astype(int)
+            f_disp['合計Pt（※単純合計値）'] = (pd.to_numeric(f_disp['num']) * pd.to_numeric(f_disp['point'])).astype(int)
             f_disp = f_disp.rename(columns={'name': 'ユーザー名', 'gift_name': 'ギフト名', 'num': '個数', 'point': 'ポイント', 'user_id': 'ユーザーID'})
-            st.dataframe(f_disp[['時間', 'ユーザー名', 'ギフト名', '個数', 'ポイント', '合計Pt']], use_container_width=True, hide_index=True)
+            st.dataframe(f_disp[['時間', 'ユーザー名', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']], use_container_width=True, hide_index=True)
+            
+            buf_f1 = io.BytesIO()
+            f_disp[['時間', 'ユーザー名', 'ユーザーID', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']].to_csv(buf_f1, index=False, encoding='utf-8-sig')
+            st.download_button("無償全量ログをCSVダウンロード", buf_f1.getvalue(), "free_gift_all.csv", "text/csv", key="dl_f1")
 
         with st.expander("🎈 ユーザー単位でギフト合算集計", expanded=False):
             f_sum = f_raw.groupby(['user_id', 'gift_name', 'point'], as_index=False).agg({'num': 'sum', 'created_at': 'max', 'name': 'last'})
-            f_sum['合計Pt'] = (f_sum['num'] * pd.to_numeric(f_sum['point'])).astype(int)
+            f_sum['合計Pt（※単純合計値）'] = (f_sum['num'] * pd.to_numeric(f_sum['point'])).astype(int)
             f_sum['最新時間'] = pd.to_datetime(f_sum['created_at'], unit='s').dt.tz_localize('UTC').dt.tz_convert(JST).dt.strftime("%Y-%m-%d %H:%M:%S")
             f_sum = f_sum.rename(columns={'name': 'ユーザー名', 'gift_name': 'ギフト名', 'num': '個数', 'point': 'ポイント'}).sort_values('最新時間', ascending=False)
-            st.dataframe(f_sum[['最新時間', 'ユーザー名', 'ギフト名', '個数', 'ポイント', '合計Pt']], use_container_width=True, hide_index=True)
+            st.dataframe(f_sum[['最新時間', 'ユーザー名', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']], use_container_width=True, hide_index=True)
 
         with st.expander("👤 ユーザー単位で集計 (総貢献順)", expanded=False):
-            # 無償版ユーザー単位集計
             f_u_df = f_raw.copy()
             f_u_df['line_pt'] = pd.to_numeric(f_u_df['num']) * pd.to_numeric(f_u_df['point'])
             latest_f_names = f_u_df.sort_values('created_at').groupby('user_id')['name'].last()
@@ -1111,8 +1114,8 @@ with tab_free:
             for _, r in f_u_merged.iterrows():
                 f_u_rows.append({
                     'ユーザー名': latest_f_names[r['user_id']] if r['user_id'] != prev_f_id else '',
-                    'ギフト名': r['gift_name'], '個数': r['num'], '単価': r['point'],
-                    'ギフト単位Pt': int(r['line_pt']), '総貢献Pt': int(r['総Pt']) if r['user_id'] != prev_f_id else ''
+                    'ギフト名': r['gift_name'], '個数': r['num'], 'ポイント': r['point'],
+                    'ギフト単位Pt': int(r['line_pt']), '総貢献Pt（※単純合計値）': int(r['総Pt']) if r['user_id'] != prev_f_id else ''
                 })
                 prev_f_id = r['user_id']
             st.dataframe(pd.DataFrame(f_u_rows), use_container_width=True, hide_index=True)
@@ -1144,14 +1147,20 @@ with tab_all:
         with st.expander("📜 スペシャル＆無償ギフトログ一覧表 (全量)", expanded=True):
             all_disp = all_df.sort_values('created_at', ascending=False).copy()
             all_disp['時間'] = all_disp['created_at_dt'].dt.tz_localize('UTC').dt.tz_convert(JST).dt.strftime("%Y-%m-%d %H:%M:%S")
-            all_disp['合計Pt'] = (pd.to_numeric(all_disp['num']) * pd.to_numeric(all_disp['point'])).astype(int)
-            st.dataframe(all_disp[['時間', 'name', 'gift_name', 'num', 'point', '合計Pt']].rename(columns={'name': 'ユーザー名', 'gift_name': 'ギフト名'}), use_container_width=True, hide_index=True)
+            all_disp['合計Pt（※単純合計値）'] = (pd.to_numeric(all_disp['num']) * pd.to_numeric(all_disp['point'])).astype(int)
+            all_disp = all_disp.rename(columns={'name': 'ユーザー名', 'gift_name': 'ギフト名', 'num': '個数', 'point': 'ポイント', 'user_id': 'ユーザーID'})
+            st.dataframe(all_disp[['時間', 'ユーザー名', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']], use_container_width=True, hide_index=True)
+            
+            buf_all1 = io.BytesIO()
+            all_disp[['時間', 'ユーザー名', 'ユーザーID', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']].to_csv(buf_all1, index=False, encoding='utf-8-sig')
+            st.download_button("統合全量ログをCSVダウンロード", buf_all1.getvalue(), "combined_gift_all.csv", "text/csv", key="dl_all1")
 
         with st.expander("🎁🎈 ユーザー単位でギフト合算集計", expanded=False):
             all_sum = all_df.groupby(['user_id', 'gift_name', 'point'], as_index=False).agg({'num': 'sum', 'created_at_dt': 'max', 'name': 'last'})
-            all_sum['合計Pt'] = (all_sum['num'] * pd.to_numeric(all_sum['point'])).astype(int)
+            all_sum['合計Pt（※単純合計値）'] = (all_sum['num'] * pd.to_numeric(all_sum['point'])).astype(int)
             all_sum['最新時間'] = all_sum['created_at_dt'].dt.tz_localize('UTC').dt.tz_convert(JST).dt.strftime("%Y-%m-%d %H:%M:%S")
-            st.dataframe(all_sum[['最新時間', 'name', 'gift_name', 'num', 'point', '合計Pt']].rename(columns={'name': 'ユーザー名', 'gift_name': 'ギフト名'}).sort_values('最新時間', ascending=False), use_container_width=True, hide_index=True)
+            all_sum = all_sum.rename(columns={'name': 'ユーザー名', 'gift_name': 'ギフト名', 'num': '個数', 'point': 'ポイント'}).sort_values('最新時間', ascending=False)
+            st.dataframe(all_sum[['最新時間', 'ユーザー名', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']], use_container_width=True, hide_index=True)
 
         with st.expander("👤 ユーザー単位で集計 (総貢献順)", expanded=False):
             all_u = all_df.copy()
@@ -1166,8 +1175,8 @@ with tab_all:
             for _, r in all_u_merged.iterrows():
                 all_u_rows.append({
                     'ユーザー名': latest_all_names[r['user_id']] if r['user_id'] != prev_all_id else '',
-                    'ギフト名': r['gift_name'], '個数': r['num'], '単価': r['point'],
-                    'ギフト単位Pt': int(r['line_pt']), '総貢献Pt': int(r['総Pt']) if r['user_id'] != prev_all_id else ''
+                    'ギフト名': r['gift_name'], '個数': r['num'], 'ポイント': r['point'],
+                    'ギフト単位Pt': int(r['line_pt']), '総貢献Pt（※単純合計値）': int(r['総Pt']) if r['user_id'] != prev_all_id else ''
                 })
                 prev_all_id = r['user_id']
             st.dataframe(pd.DataFrame(all_u_rows), use_container_width=True, hide_index=True)
@@ -1179,45 +1188,18 @@ with tab_all:
 # ==========================================
 with tab_fan:
     if st.session_state.fan_list:
-        # 一旦データフレーム化
         raw_fan_df = pd.DataFrame(st.session_state.fan_list)
-        
-        # カラム名の対応関係を定義（存在する時のみリネーム）
-        rename_map = {
-            'rank': '順位',
-            'level': 'レベル',
-            'user_name': 'ユーザー名',
-            'point': 'ポイント',
-            'user_id': 'ユーザーID'
-        }
-        
-        # 実際にデータフレームに存在するカラムだけを対象にする
+        rename_map = {'rank': '順位', 'level': 'レベル', 'user_name': 'ユーザー名', 'point': 'ポイント', 'user_id': 'ユーザーID'}
         existing_rename_map = {k: v for k, v in rename_map.items() if k in raw_fan_df.columns}
         fan_df = raw_fan_df.rename(columns=existing_rename_map)
-        
-        # 表示したいカラムの優先順位リスト
         desired_cols = ['順位', 'レベル', 'ユーザー名', 'ポイント', 'ユーザーID']
-        # 実際にリネーム後のデータフレームに存在するカラムだけを抽出
         final_display_cols = [c for c in desired_cols if c in fan_df.columns]
         
         st.markdown("### 🏆 ファンリスト一覧")
+        st.dataframe(fan_df[final_display_cols], use_container_width=True, hide_index=True)
         
-        # 存在するカラムだけで表示（ここでのKeyErrorを回避）
-        st.dataframe(
-            fan_df[final_display_cols], 
-            use_container_width=True, 
-            hide_index=True
-        )
-        
-        # CSVダウンロード用
         buf_fan = io.BytesIO()
         fan_df[final_display_cols].to_csv(buf_fan, index=False, encoding='utf-8-sig')
-        st.download_button(
-            label="ファンリストをダウンロード",
-            data=buf_fan.getvalue(),
-            file_name=f"fan_list_{st.session_state.room_id}.csv",
-            mime="text/csv",
-            key="dl_f_final"
-        )
+        st.download_button(label="ファンリストをダウンロード", data=buf_fan.getvalue(), file_name=f"fan_list_{st.session_state.room_id}.csv", mime="text/csv", key="dl_f_final")
     else:
         st.info("ファンデータがありません。")
