@@ -1314,6 +1314,76 @@ else:
 
 st.markdown("---")
 
+
+if st.session_state.free_gift_log:
+    # 1. データの準備
+    f_agg_df = pd.DataFrame(st.session_state.free_gift_log)
+    
+    # 時間を計算用に datetime 型として保持
+    f_agg_df['created_at_dt'] = pd.to_datetime(f_agg_df['created_at'], unit='s')
+    
+    # 2. 集計処理 (ユーザーID と ギフト名 をキーにする)
+    # 無償ギフトはgift_idが欠落する場合があるため、gift_name（ギフト名）もキーに含めるのが安全です
+    f_summary_df = f_agg_df.groupby(['user_id', 'gift_name'], as_index=False).agg({
+        'num': 'sum',
+        'created_at_dt': 'max',
+        'name': 'last',   # 最新のユーザー名を採用
+        'point': 'first'  # 単価
+    })
+
+    # 3. 数値変換と「合計Pt」の算出
+    f_summary_df['point'] = pd.to_numeric(f_summary_df['point'], errors='coerce').fillna(0)
+    f_summary_df['合計Pt（※単純合計値）'] = (f_summary_df['num'] * f_summary_df['point']).astype(int)
+
+    # 4. 日本語カラム名への変換
+    f_summary_df = f_summary_df.rename(columns={
+        'created_at_dt': '最新のギフト時間',
+        'name': 'ユーザー名',
+        'gift_name': 'ギフト名',
+        'num': '個数',
+        'point': 'ポイント',
+        'user_id': 'ユーザーID'
+    })
+
+    # 5. 時間表示の整形 (JST変換)
+    f_summary_df['最新のギフト時間'] = f_summary_df['最新のギフト時間'].dt.tz_localize('UTC').dt.tz_convert(JST).dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    # 6. ソート (最新のギフト時間が新しい順)
+    f_summary_df = f_summary_df.sort_values(by='最新のギフト時間', ascending=False)
+
+    # --- 🌟 表示とCSVの切り分け ---
+    f_display_cols_sum = ['最新のギフト時間', 'ユーザー名', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']
+    f_csv_cols_sum = ['最新のギフト時間', 'ユーザー名', 'ユーザーID', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']
+
+    # 7. UI表示
+    st.markdown(
+        """
+        <h3 style="font-size:1.5em; margin-bottom:6px; margin-top:20px;">
+            🎈 無償ギフトログ一覧表
+            <span style="font-size:0.7em; opacity:0.8;">（ユーザー単位でギフト合算集計）</span>
+        </h3>
+        """,
+        unsafe_allow_html=True
+    )
+    st.dataframe(f_summary_df[f_display_cols_sum], use_container_width=True, hide_index=True)
+
+    # 8. CSVダウンロードボタン
+    buffer = io.BytesIO()
+    f_summary_df[f_csv_cols_sum].to_csv(buffer, index=False, encoding='utf-8-sig')
+    buffer.seek(0)
+    st.download_button(
+        label="無償合算ギフトログをCSVでダウンロード",
+        data=buffer,
+        file_name=f"free_gift_agg_log_{st.session_state.room_id}_{datetime.datetime.now(JST).strftime('%Y%m%d_%H%M%S')}.csv",
+        mime="text/csv",
+        key="download_agg_free_gift_csv"
+    )
+else:
+    st.info("集計できる無償ギフトデータがありません。")
+
+
+st.markdown("---")
+
 # --- ▼▼▼ 無償ギフトログ一覧表 （ユーザー単位で集計） [名前変更対策版] ▼▼▼ ---
 
 if st.session_state.free_gift_log:
