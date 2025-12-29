@@ -532,10 +532,14 @@ if st.button("トラッキング開始", key="start_button"):
 
         # ✅ 特別認証モード（mksp154851）の場合はバイパス許可
         if not st.session_state.get("is_master_access", False) and input_room_id not in valid_ids:
-            # 【重要】エラーを表示して、このボタンの処理をここで終わらせる
             st.error("指定されたルームIDが見つからないか、認証されていないルームIDか、現在配信中ではありません。")
+            # 💡 【重要】ここで処理を強制終了させます。
+            # これにより、このボタンの下にある「タブ表示」や「ログ詳細」の計算が走って
+            # エラー表示が上書きされるのを防ぎます。
+            st.stop() 
+            
         else:
-            # --- 正常系：認証が通った場合のみここに入る ---
+            # --- 基本設定 ---
             st.session_state.is_tracking = True
             st.session_state.room_id = input_room_id
             
@@ -550,17 +554,21 @@ if st.button("トラッキング開始", key="start_button"):
             st.session_state.free_gift_log = []
             st.session_state.raw_free_gift_queue = []
             
-            # 各種マスター・サーバー情報取得
+            # 1. 無償ギフトマスター（名前・画像・ポイント）の取得
             update_free_gift_master(input_room_id)
+            
+            # 2. WebSocket接続情報の取得
             streaming_info = get_streaming_server_info(input_room_id)
             
             if streaming_info:
+                # 3. 既存の受信機が動いていれば停止
                 if st.session_state.get("ws_receiver"):
                     try:
                         st.session_state.ws_receiver.stop()
                     except:
                         pass
                 
+                # 4. 無償ギフト受信機（WebSocket）をバックグラウンドで起動
                 receiver = FreeGiftReceiver(
                     room_id=input_room_id,
                     host=streaming_info["host"],
@@ -571,13 +579,11 @@ if st.button("トラッキング開始", key="start_button"):
             else:
                 st.warning("配信サーバー情報の取得に失敗したため、無償ギフトのリアルタイム取得はスキップされます。")
 
-            # 【重要】成功した時だけ再描画してログ詳細を表示させる
+            # 正常時のみ再描画
             st.rerun()
     else:
         st.error("ルームIDを入力してください。")
-    
-    # ⚠️ もしここに st.rerun() や、別の画面更新処理がある場合は削除するか、
-    # この if st.button の外に影響が出ないようにしてください。
+        st.stop() # ID未入力時も停止させる
 
 if st.button("トラッキング停止", key="stop_button", disabled=not st.session_state.is_tracking):
     if st.session_state.is_tracking:
