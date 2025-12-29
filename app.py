@@ -1267,20 +1267,24 @@ if st.session_state.free_gift_log:
     # C. 集計結果に最新のユーザー名をマッピング
     free_grouped['ユーザー名'] = free_grouped['ユーザーID'].map(latest_free_names)
 
-    # 4. ソート用の計算（ユーザーごとの総個数を算出：ユーザーID基準）
-    free_user_total = free_grouped.groupby('ユーザーID')['個数'].sum().reset_index()
-    free_user_total = free_user_total.rename(columns={'個数': 'ユーザー総個数'})
-    
-    free_grouped = free_grouped.merge(free_user_total, on='ユーザーID', how='left')
+    # --- 🌟 追加：合計ポイントとユーザー総ポイントの算出 ---
+    # ギフトごとの合計ポイントを算出
+    free_grouped['合計ポイント'] = free_grouped['個数'] * free_grouped['ポイント']
 
-    # 5. ソート実行
-    # ユーザー総個数（降順） > ユーザーID（固定） > 各ギフト個数（降順）
+    # ユーザー単位の総ポイントを「ユーザーID」基準で集計
+    free_user_total_pt = free_grouped.groupby('ユーザーID')['合計ポイント'].sum().reset_index()
+    free_user_total_pt = free_user_total_pt.rename(columns={'合計ポイント': 'ユーザー総ポイント'})
+    
+    free_grouped = free_grouped.merge(free_user_total_pt, on='ユーザーID', how='left')
+
+    # 5. ソート実行の修正
+    # 🌟 ユーザー総ポイント（降順） > ユーザーID（固定） > 合計ポイント（降順）
     free_grouped_sorted = free_grouped.sort_values(
-        by=['ユーザー総個数', 'ユーザーID', '個数'],
+        by=['ユーザー総ポイント', 'ユーザーID', '合計ポイント'],
         ascending=[False, True, False]
     )
 
-    # 6. 表示用データの作成（ユーザーIDが変わった時だけ名前を表示し、以降は空白にする）
+    # 6. 表示用データの作成（ユーザーIDが変わった時だけ名前を表示し、合計Ptを追加）
     free_display_rows = []
     prev_user_id = None
     for _, row in free_grouped_sorted.iterrows():
@@ -1289,7 +1293,8 @@ if st.session_state.free_gift_log:
             'ユーザー名': row['ユーザー名'] if curr_user_id != prev_user_id else '',
             'ギフト名': row['ギフト名'],
             '個数（合計）': row['個数'],
-            'ポイント': row['ポイント']
+            'ポイント': row['ポイント'],
+            '合計Pt（※単純合計値）': int(row['合計ポイント'])
         })
         prev_user_id = curr_user_id
 
