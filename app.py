@@ -1130,6 +1130,7 @@ if st.session_state.is_tracking and st.session_state.room_id:
     # ==========================================
     # タブ4: スペシャル＆無償 統合ログ
     # ==========================================
+   
     with tab_all:
         combined_data = []
         if st.session_state.gift_log:
@@ -1149,7 +1150,7 @@ if st.session_state.is_tracking and st.session_state.room_id:
             all_df = pd.concat(combined_data, ignore_index=True)
             all_df['created_at_dt'] = pd.to_datetime(all_df['created_at'], unit='s')
 
-            with st.expander("📜 スペシャル＆無償ギフトログ一覧表 (全量)", expanded=True):
+            with st.expander("📜 ＳＰ＆無償ギフトログ一覧表 (全量)", expanded=True):
                 all_disp = all_df.sort_values('created_at', ascending=False).copy()
                 all_disp['ギフト時間'] = all_disp['created_at_dt'].dt.tz_localize('UTC').dt.tz_convert(JST).dt.strftime("%Y-%m-%d %H:%M:%S")
                 all_disp['合計Pt（※単純合計値）'] = (pd.to_numeric(all_disp['num']) * pd.to_numeric(all_disp['point'])).astype(int)
