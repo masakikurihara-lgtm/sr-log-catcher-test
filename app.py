@@ -994,13 +994,26 @@ if st.session_state.is_tracking and st.session_state.room_id:
         f"{len(st.session_state.gift_log)} 件のスペシャルギフト、"
         f"{len(st.session_state.free_gift_log)} 件の無償ギフト、"
         f"および {st.session_state.total_fan_count} 名のファンのデータが蓄積されています。<br />"
-        f"※各タブを選択し、必要に応じて「＋」で詳細を展開してください。</p>", 
+        f"※誤ってリロード（再読み込み）してしまった、閉じてしまった等でダウンロードせずに消失してしまった場合、"
+        f"24時間以内に運営ご相談いただければ、復元・ログ取得できる可能性があります。<br />"
+        f"※各タブを選択し、必要に応じて「>」で詳細を展開してください。</p>", 
+        unsafe_allow_html=True
+    )
+
+    st.markdown(
+        f"<p style='font-size:12px; color:#a1a1a1;'>"
+        f"※データは現在{len(st.session_state.comment_log)}件のコメントと、"
+        f"{len(st.session_state.gift_log)}件のスペシャルギフト、"
+        f"{len(st.session_state.free_gift_log)}件の無償ギフト、"
+        f"および{st.session_state.total_fan_count}名のファンのデータが蓄積されています。<br />"
+        f"※誤ってリロード（再読み込み）してしまった、閉じてしまった等でダウンロードせずに消失してしまった場合、"
+        f"24時間以内に運営ご相談いただければ、復元・ログ取得できる可能性があります。</p>", 
         unsafe_allow_html=True
     )
 
     # --- タブの作成 ---
     tab_com, tab_sp, tab_free, tab_all, tab_fan = st.tabs([
-        "💬 コメント", "🎁 スペシャルギフト", "🎈 無償ギフト", "📊 統合ログ (SP&無償)", "🏆 ファンリスト"
+        "💬 コメント", "🎁 スペシャルギフト", "🎈 無償ギフト", "🎁🎈 統合ログ (SP&無償)", "🏆 ファンリスト"
     ])
 
     # ==========================================
@@ -1021,7 +1034,7 @@ if st.session_state.is_tracking and st.session_state.room_id:
             
             buf_com = io.BytesIO()
             c_df[['コメント時間', 'ユーザー名', 'ユーザーID', 'コメント内容']].to_csv(buf_com, index=False, encoding='utf-8-sig')
-            st.download_button("コメントログをCSVでダウンロード", buf_com.getvalue(), f"comment_log_{st.session_state.room_id}.csv", "text/csv", key="dl_c")
+            st.download_button("コメントログをCSVダウンロード", buf_com.getvalue(), f"comment_log_{st.session_state.room_id}.csv", "text/csv", key="dl_c")
         else:
             st.info("コメントデータがありません。")
 
@@ -1047,7 +1060,7 @@ if st.session_state.is_tracking and st.session_state.room_id:
                 
                 buf_s1 = io.BytesIO()
                 s_disp[['時間', 'ユーザー名', 'ユーザーID', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']].to_csv(buf_s1, index=False, encoding='utf-8-sig')
-                st.download_button("スペシャル全量ログをCSVダウンロード", buf_s1.getvalue(), "sp_gift_all.csv", "text/csv", key="dl_s1")
+                st.download_button("SPギフト全量ログをCSVダウンロード", buf_s1.getvalue(), "sp_gift_all.csv", "text/csv", key="dl_s1")
 
             # 2. ギフト単位合算
             with st.expander("🎁 ユーザー単位でギフト合算集計", expanded=False):
@@ -1095,7 +1108,7 @@ if st.session_state.is_tracking and st.session_state.room_id:
                 
                 buf_f1 = io.BytesIO()
                 f_disp[['時間', 'ユーザー名', 'ユーザーID', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']].to_csv(buf_f1, index=False, encoding='utf-8-sig')
-                st.download_button("無償全量ログをCSVダウンロード", buf_f1.getvalue(), "free_gift_all.csv", "text/csv", key="dl_f1")
+                st.download_button("無償ギフト全量ログをCSVダウンロード", buf_f1.getvalue(), "free_gift_all.csv", "text/csv", key="dl_f1")
 
             with st.expander("🎈 ユーザー単位でギフト合算集計", expanded=False):
                 f_sum = f_raw.groupby(['user_id', 'gift_name', 'point'], as_index=False).agg({'num': 'sum', 'created_at': 'max', 'name': 'last'})
@@ -1156,7 +1169,7 @@ if st.session_state.is_tracking and st.session_state.room_id:
                 
                 buf_all1 = io.BytesIO()
                 all_disp[['時間', 'ユーザー名', 'ユーザーID', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']].to_csv(buf_all1, index=False, encoding='utf-8-sig')
-                st.download_button("統合全量ログをCSVダウンロード", buf_all1.getvalue(), "combined_gift_all.csv", "text/csv", key="dl_all1")
+                st.download_button("SP&無償ギフト全量ログをCSVダウンロード", buf_all1.getvalue(), "combined_gift_all.csv", "text/csv", key="dl_all1")
 
             with st.expander("🎁🎈 ユーザー単位でギフト合算集計", expanded=False):
                 all_sum = all_df.groupby(['user_id', 'gift_name', 'point'], as_index=False).agg({'num': 'sum', 'created_at_dt': 'max', 'name': 'last'})
@@ -1184,7 +1197,7 @@ if st.session_state.is_tracking and st.session_state.room_id:
                     prev_all_id = r['user_id']
                 st.dataframe(pd.DataFrame(all_u_rows), use_container_width=True, hide_index=True)
         else:
-            st.info("データがありません。")
+            st.info("SP&無償ギフトデータがありません。")
 
     # ==========================================
     # タブ5: ファンリスト
@@ -1203,6 +1216,6 @@ if st.session_state.is_tracking and st.session_state.room_id:
             
             buf_fan = io.BytesIO()
             fan_df[final_display_cols].to_csv(buf_fan, index=False, encoding='utf-8-sig')
-            st.download_button(label="ファンリストをダウンロード", data=buf_fan.getvalue(), file_name=f"fan_list_{st.session_state.room_id}.csv", mime="text/csv", key="dl_f_final")
+            st.download_button(label="ファンリストをCSVダウンロード", data=buf_fan.getvalue(), file_name=f"fan_list_{st.session_state.room_id}.csv", mime="text/csv", key="dl_f_final")
         else:
             st.info("ファンデータがありません。")
