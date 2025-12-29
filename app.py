@@ -533,52 +533,51 @@ if st.button("トラッキング開始", key="start_button"):
         # ✅ 特別認証モード（mksp154851）の場合はバイパス許可
         is_master = st.session_state.get("is_master_access", False)
         if not is_master and input_room_id not in valid_ids:
+            # エラー時は状態を更新せず、メッセージだけ出す（下の停止ボタンは非活性のまま残る）
             st.error("指定されたルームIDが見つからないか、認証されていないルームIDか、現在配信中ではありません。")
-            st.stop()  # 💡 エラー時はここで完全に止めて、下の「停止ボタン」を出さない
         else:
-            # 💡 追加：配信サーバー情報を取得。取れない場合はエラー。
+            # 配信サーバー情報を取得
             streaming_info = get_streaming_server_info(input_room_id)
             
             if not streaming_info:
+                # サーバー情報が取れない（配信中でない）場合もエラー表示のみ
                 st.error("指定されたルームIDが見つからないか、認証されていないルームIDか、現在配信中ではありません。")
-                st.stop()  # 💡 同様にここで停止
-            
-            # --- 正常系：ここから下は配信中であることが確定した場合のみ実行 ---
-            st.session_state.is_tracking = True
-            st.session_state.room_id = input_room_id
-            
-            # --- 既存ログの初期化 ---
-            st.session_state.comment_log = []
-            st.session_state.gift_log = []
-            st.session_state.gift_list_map = {}
-            st.session_state.fan_list = []
-            st.session_state.total_fan_count = 0
-            st.session_state.free_gift_log = []
-            st.session_state.raw_free_gift_queue = []
-            
-            # 1. 無償ギフトマスターの取得
-            update_free_gift_master(input_room_id)
-            
-            # 2. 受信機の起動
-            if st.session_state.get("ws_receiver"):
-                try:
-                    st.session_state.ws_receiver.stop()
-                except:
-                    pass
-            
-            receiver = FreeGiftReceiver(
-                room_id=input_room_id,
-                host=streaming_info["host"],
-                key=streaming_info["key"]
-            )
-            receiver.start()
-            st.session_state.ws_receiver = receiver
+            else:
+                # --- 正常系：ここから下は配信中であることが確定した場合のみ実行 ---
+                st.session_state.is_tracking = True
+                st.session_state.room_id = input_room_id
+                
+                # --- 既存ログの初期化 ---
+                st.session_state.comment_log = []
+                st.session_state.gift_log = []
+                st.session_state.gift_list_map = {}
+                st.session_state.fan_list = []
+                st.session_state.total_fan_count = 0
+                st.session_state.free_gift_log = []
+                st.session_state.raw_free_gift_queue = []
+                
+                # 1. 無償ギフトマスターの取得
+                update_free_gift_master(input_room_id)
+                
+                # 2. 受信機の起動
+                if st.session_state.get("ws_receiver"):
+                    try:
+                        st.session_state.ws_receiver.stop()
+                    except:
+                        pass
+                
+                receiver = FreeGiftReceiver(
+                    room_id=input_room_id,
+                    host=streaming_info["host"],
+                    key=streaming_info["key"]
+                )
+                receiver.start()
+                st.session_state.ws_receiver = receiver
 
-            # すべての準備が完了してから画面を更新（これで正常に稼働します）
-            st.rerun()
+                # 成功時のみ画面を更新して「ログ詳細」を表示
+                st.rerun()
     else:
         st.error("ルームIDを入力してください。")
-        st.stop()  # 💡 未入力時もここで停止
 
 if st.button("トラッキング停止", key="stop_button", disabled=not st.session_state.is_tracking):
     if st.session_state.is_tracking:
