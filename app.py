@@ -526,9 +526,14 @@ input_room_id = st.text_input("対象のルームIDを入力してください:"
 
 # --- ボタンを縦並びに配置 ---
 if st.button("トラッキング開始", key="start_button"):
+    st.write("DEBUG: ボタンが押されました") # ←診断ログ1
     if input_room_id and input_room_id.isdigit():
+        st.write(f"DEBUG: IDチェックOK ({input_room_id})") # ←診断ログ2
+        
+        # ここで止まる場合は get_room_list 内部の問題です
         room_list_df = get_room_list()
         valid_ids = set(str(x) for x in room_list_df.iloc[:,0].dropna().astype(int))
+        st.write("DEBUG: ルームリスト取得完了") # ←診断ログ3
 
         # ✅ 特別認証モード（mksp154851）の場合はバイパス許可
         if not st.session_state.get("is_master_access", False) and input_room_id not in valid_ids:
@@ -538,44 +543,35 @@ if st.button("トラッキング開始", key="start_button"):
             st.session_state.is_tracking = True
             st.session_state.room_id = input_room_id
             
-            # --- 既存ログの初期化 ---
+            # --- 以下、元の初期化処理 ---
             st.session_state.comment_log = []
             st.session_state.gift_log = []
             st.session_state.gift_list_map = {}
             st.session_state.fan_list = []
             st.session_state.total_fan_count = 0
-            
-            # --- 新設：無償ギフト用の初期化 ---
             st.session_state.free_gift_log = []
             st.session_state.raw_free_gift_queue = []
             
-            # 1. 無償ギフトマスター（名前・画像・ポイント）の取得
-            update_free_gift_master(input_room_id) # ← コメント解除
-            
-            # 2. WebSocket接続情報の取得
-            streaming_info = get_streaming_server_info(input_room_id) # ← コメント解除
+            update_free_gift_master(input_room_id)
+            streaming_info = get_streaming_server_info(input_room_id)
             
             if streaming_info:
-                # 3. 既存の受信機が動いていれば停止
                 if st.session_state.get("ws_receiver"):
                     try:
                         st.session_state.ws_receiver.stop()
                     except:
                         pass
                 
-                # 4. 無償ギフト受信機（WebSocket）をバックグラウンドで起動
-                # 引数名を free_gift_handler.py の定義（host, key）に合わせて修正します
                 receiver = FreeGiftReceiver(
                     room_id=input_room_id,
-                    host=streaming_info["host"],  # bcsvr_host から host に変更
-                    key=streaming_info["key"]    # bcsvr_key から key に変更
+                    host=streaming_info["host"],
+                    key=streaming_info["key"]
                 )
                 receiver.start()
                 st.session_state.ws_receiver = receiver
             else:
                 st.warning("配信サーバー情報の取得に失敗したため、無償ギフトのリアルタイム取得はスキップされます。")
 
-            # 正常にすべての処理（else内）が完了したときだけ再描画する
             st.rerun()
     else:
         st.error("ルームIDを入力してください。")
