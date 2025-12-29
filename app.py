@@ -1041,21 +1041,15 @@ if st.session_state.gift_log:
     if st.session_state.gift_list_map:
         gift_info_df = pd.DataFrame.from_dict(st.session_state.gift_list_map, orient='index')
         gift_info_df.index = gift_info_df.index.astype(str)
-        
         gift_df['gift_id'] = gift_df['gift_id'].astype(str)
-        # 結合
         gift_df = gift_df.set_index('gift_id').join(gift_info_df, on='gift_id', lsuffix='_user_data', rsuffix='_gift_info').reset_index()
 
-    # --- 🌟 ここから追加：合計ポイントの算出ロジック ---
-    # 数値として計算するために NaN を 0 に置換
+    # 3. 合計ポイントの算出
     calc_num = pd.to_numeric(gift_df['num'], errors='coerce').fillna(0)
     calc_point = pd.to_numeric(gift_df['point'], errors='coerce').fillna(0)
-    
-    # 合計Pt（※単純合計値）の列を作成
     gift_df['合計Pt（※単純合計値）'] = (calc_num * calc_point).astype(int)
-    # ----------------------------------------------
 
-    # 列名の整理（リネーム）
+    # 4. カラム名のリネーム（ユーザーIDはここでリネームして保持）
     gift_df = gift_df.rename(columns={
         'name_user_data': 'ユーザー名', 
         'name_gift_info': 'ギフト名', 
@@ -1065,22 +1059,19 @@ if st.session_state.gift_log:
         'user_id': 'ユーザーID'
     })
 
-    # 表示する列の指定（ユーザーIDを除外し、合計Ptを追加）
+    # --- 🌟 表示とCSVの切り分け ---
+    # 画面表示用（ユーザーIDを含まない）
     display_cols = ['ギフト時間', 'ユーザー名', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']
+    # CSV出力用（ユーザーIDを含む）
+    csv_cols = ['ギフト時間', 'ユーザー名', 'ユーザーID', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']
     
-    # 画面表示用に存在する列だけを抽出（念のためのエラー回避）
-    gift_cols_to_show = [c for c in display_cols if c in gift_df.columns]
-
     st.markdown("#### 🎁 スペシャルギフトログ一覧表")
-    # 画面上には「ユーザーID」を表示せず「合計Pt」を表示
-    st.dataframe(gift_df[gift_cols_to_show], use_container_width=True, hide_index=True)
+    st.dataframe(gift_df[display_cols], use_container_width=True, hide_index=True)
     
-    # CSVダウンロード処理
+    # 5. CSVダウンロード処理
     buffer = io.BytesIO()
-    # CSVには全データ（ユーザーID等も含む）を残したい場合は gift_df.to_csv、
-    # 画面表示と同じ項目にしたい場合は gift_df[gift_cols_to_show].to_csv とします。
-    # ここでは分析用に全データを保持した上で、見出しも適用したものを出力します。
-    gift_df[gift_cols_to_show].to_csv(buffer, index=False, encoding='utf-8-sig')
+    # csv_cols を指定することでユーザーIDが含まれる
+    gift_df[csv_cols].to_csv(buffer, index=False, encoding='utf-8-sig')
     buffer.seek(0)
     st.download_button(
         label="スペシャルギフトログをCSVでダウンロード",
@@ -1189,9 +1180,6 @@ if st.session_state.gift_log:
 
 st.markdown("---")
 
-# 無償ギフト用のカラム定義
-free_gift_cols = ['ギフト時間', 'ユーザー名', 'ギフト名', '個数', 'ポイント', 'ユーザーID']
-
 if st.session_state.free_gift_log:
     # 1. ログのデータフレーム化
     free_gift_df = pd.DataFrame(st.session_state.free_gift_log)
@@ -1201,8 +1189,12 @@ if st.session_state.free_gift_log:
         free_gift_df['created_at'], unit='s'
     ).dt.tz_localize('UTC').dt.tz_convert(JST).dt.strftime("%Y-%m-%d %H:%M:%S")
     
-    # 3. カラム名の日本語化
-    # ※ free_gift_log は既に gift_name や point を持っている構造なので join は不要です
+    # 3. 合計ポイントの算出
+    calc_num_free = pd.to_numeric(free_gift_df['num'], errors='coerce').fillna(0)
+    calc_point_free = pd.to_numeric(free_gift_df['point'], errors='coerce').fillna(0)
+    free_gift_df['合計Pt（※単純合計値）'] = (calc_num_free * calc_point_free).astype(int)
+    
+    # 4. カラム名の日本語化
     free_gift_df = free_gift_df.rename(columns={
         'name': 'ユーザー名', 
         'gift_name': 'ギフト名', 
@@ -1212,19 +1204,26 @@ if st.session_state.free_gift_log:
         'user_id': 'ユーザーID'
     })
     
+    # --- 🌟 表示とCSVの切り分け ---
+    # 画面表示用（ユーザーIDを含まない）
+    free_display_cols = ['ギフト時間', 'ユーザー名', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']
+    # CSV出力用（ユーザーIDを含む）
+    free_csv_cols = ['ギフト時間', 'ユーザー名', 'ユーザーID', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']
+
     st.markdown("#### 🎈 無償ギフトログ一覧表")
-    st.dataframe(free_gift_df[free_gift_cols], use_container_width=True, hide_index=True)
+    st.dataframe(free_gift_df[free_display_cols], use_container_width=True, hide_index=True)
     
-    # 4. CSVダウンロードボタン
+    # 5. CSVダウンロードボタン
     buffer = io.BytesIO()
-    free_gift_df[free_gift_cols].to_csv(buffer, index=False, encoding='utf-8-sig')
+    # free_csv_cols を指定することでユーザーIDが含まれる
+    free_gift_df[free_csv_cols].to_csv(buffer, index=False, encoding='utf-8-sig')
     buffer.seek(0)
     st.download_button(
         label="無償ギフトログをCSVでダウンロード",
         data=buffer,
         file_name=f"free_gift_log_{st.session_state.room_id}_{datetime.datetime.now(JST).strftime('%Y%m%d_%H%M%S')}.csv",
         mime="text/csv",
-        key="download_free_gift_csv" # 重複を避けるためのキー
+        key="download_free_gift_csv"
     )
 else:
     st.info("ダウンロードできる無償ギフトがありません。")
