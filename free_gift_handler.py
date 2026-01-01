@@ -29,22 +29,18 @@ class FreeGiftReceiver:
                 if len(parts) < 3: return
                 data = json.loads(parts[2])
 
-                # ギフト受信 (t: 2)
-                if data.get("t") == 2:
+                m_type = int(data.get("t", 0))
+
+                if m_type == 2:
                     self.my_queue.put(data)
-                
-                # ✅ 追加：システムメッセージ受信 (t: 18)
-                elif data.get("t") == 18:
-                    # 文字化け対策：raw文字列をlatin-1でエンコードしてからutf-8でデコード
-                    # json.loadsで既に文字列になっている場合があるため、念のため処理
-                    raw_m = data.get("m", "")
+                elif m_type == 18:
+                    # 文字化け復元を試みるが、失敗してもデータ自体はキューに入れる
                     try:
-                        # 共有いただいたログのような化け方をしている場合の復元
+                        raw_m = data.get("m", "")
                         fixed_m = raw_m.encode('latin-1').decode('utf-8')
                         data["m"] = fixed_m
                     except:
-                        pass # 既に正常な場合はそのまま
-                    
+                        pass 
                     self.my_queue.put(data)
 
             except Exception as e:
