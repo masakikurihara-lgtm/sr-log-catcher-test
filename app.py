@@ -985,12 +985,15 @@ if st.session_state.is_tracking:
                         created_at = datetime.datetime.fromtimestamp(log.get('created_at', 0), JST).strftime("%H:%M:%S")
                         msg_text = log.get('message', '')
                         
+                        # paddingを削除し、class="comment-item"を付与して高さを統一
                         html = f"""
-                        <div style="padding: 8px; line-height: 1.4;">
+                        <div class="comment-item">
                             <div class="comment-time">{created_at}</div>
-                            <span style="color: #FF6C1A; font-weight: bold; font-size: 0.85em;">{msg_text}</span>
+                            <div style="color: #FF6C1A; font-weight: bold; font-size: 0.85em; line-height: 1.4; margin-top: 2px;">
+                                {msg_text}
+                            </div>
                         </div>
-                        <hr style="border: none; border-top: 1px solid #eee; margin: 4px 0;">
+                        <hr style="border: none; border-top: 1px solid #eee; margin: 8px 0;">
                         """
                         st.markdown(html, unsafe_allow_html=True)
                 else:
