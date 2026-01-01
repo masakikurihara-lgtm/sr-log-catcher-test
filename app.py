@@ -602,7 +602,8 @@ if st.session_state.is_tracking or st.session_state.get("room_id"):
     is_live_now = int(st.session_state.room_id) in onlives_data
 
     if not is_live_now:
-        st.warning("📡 配信が終了しました。全ログを最終保存します。")
+        # st.warning("📡 配信が終了しました。全ログを最終保存します。")
+        st.info("📡 配信の終了を確認しました。未保存のログを含め、最終データを保存します。")
 
         # 1. コメントログ保存
         if st.session_state.comment_log:
@@ -656,7 +657,8 @@ if st.session_state.is_tracking or st.session_state.get("room_id"):
 
         # 配信が終了しても、表示用のフラグを「停止」にせず、警告を出すだけにする
         # st.session_state.is_tracking = False  # 消去またはコメントアウト
-        st.warning("📡 配信が終了しました。ログを最終保存しました。このまま振り返りが可能です。")
+        # st.warning("📡 配信が終了しました。ログを最終保存しました。このまま振り返りが可能です。")
+        st.success("✅ 最終保存が完了しました。このままデータの確認や手動ダウンロードが可能です。")
         # st.rerun()  # 消去またはコメントアウト
 
 
@@ -673,7 +675,14 @@ if st.session_state.is_tracking or st.session_state.get("room_id"):
         room_url_key = prof.get("room_url_key", "")
         room_url = f"https://www.showroom-live.com/r/{room_url_key}" if room_url_key else f"https://www.showroom-live.com/room/profile?room_id={room_id}"
         link_html = f'<a href="{room_url}" target="_blank" style="font-weight:bold; text-decoration:underline; color:inherit;">{room_name}</a>'
-        st.markdown(f'<div class="tracking-success">{link_html} の配信をトラッキング中です！</div>', unsafe_allow_html=True)
+        # 配信状態によってメッセージを切り替える
+        if is_live_now:
+            # 配信中のみ緑色の枠を表示
+            st.markdown(f'<div class="tracking-success">📡 {link_html} の配信をトラッキング中です。</div>', unsafe_allow_html=True)
+        else:
+            # 配信終了後は別のデザイン（または枠なし）にして、矛盾をなくす
+            st.markdown(f'<div style="padding:10px; border-radius:5px; background-color:#f0f2f6; border-left:5px solid #ff4b4b; color:#31333f;">🏁 {link_html} の配信は終了しました。</div>', unsafe_allow_html=True)
+
 
         # 配信中の時だけ自動更新し、新しいログを取得しにいく
         if is_live_now:
@@ -776,7 +785,7 @@ if st.session_state.is_tracking or st.session_state.get("room_id"):
                         "user_id": raw_data.get("u")
                     }
                     st.session_state.system_msg_log.insert(0, new_sys_entry)
-                    st.session_state.system_msg_log = st.session_state.system_msg_log[:200]
+                    # st.session_state.system_msg_log = st.session_state.system_msg_log[:200]
 
                 # --- 🎁 B. 無償ギフト (t: 2) の処理 ---
                 elif m_type == "2":
@@ -806,7 +815,7 @@ if st.session_state.is_tracking or st.session_state.get("room_id"):
                         "image": gift_info.get("image", "")
                     }
                     st.session_state.free_gift_log.insert(0, new_entry)
-                    st.session_state.free_gift_log = st.session_state.free_gift_log[:200]
+                    # st.session_state.free_gift_log = st.session_state.free_gift_log[:200]
 
             except Exception as e:
                 # ここで print しておけば、アプリを止めずにコンソールで原因を確認できます
@@ -1017,7 +1026,7 @@ if st.session_state.is_tracking or st.session_state.get("room_id"):
                             border_color = "#fff3cd"
                         
                         # スタイルの組み立て
-                        style = f"background-color: {bg_color}; border: 1px solid {border_color}; padding: 4px 8px; border-radius: 4px; margin-bottom: 2px;"
+                        style = f"background-color: {bg_color}; border: 1px solid {border_color}; padding: 0px 8px 4px 8px; border-radius: 4px; margin-bottom: 2px;"
                         
                         html = f"""
                         <div class="comment-item" style="{style}">
@@ -1052,7 +1061,7 @@ if st.session_state.get("room_id"):
         f"{len(st.session_state.free_gift_log)} 件の無償ギフト、"
         f"および {st.session_state.total_fan_count} 名のファンのデータが蓄積されています。<br />"
         f"※誤ってリロード（再読み込み）してしまった、閉じてしまった等でダウンロードせずに消失してしまった場合、"
-        f"24時間以内に運営にご相談いただければ、復元・ログ取得できる可能性があります。<br />"
+        f"運営にご相談いただければ、コメント、スペシャルギフトに関しては、ログ取得できる可能性があります。<br />"
         f"※各タブを選択し、必要に応じて「＞」で詳細を展開してください。</p>", 
         unsafe_allow_html=True
     )
