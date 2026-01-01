@@ -583,18 +583,17 @@ if st.button("トラッキング開始", key="start_button"):
 
 if st.button("トラッキング停止", key="stop_button", disabled=not st.session_state.is_tracking):
     if st.session_state.is_tracking:
-        # 保存対象に無償ギフトを追加
         save_log_to_ftp("comment")
         save_log_to_ftp("gift")
         save_log_to_ftp("free_gift")
 
     st.session_state.is_tracking = False
     st.session_state.room_info = None
-    st.info("トラッキングを停止しました。")
-    st.rerun()
+    st.success("トラッキングを停止しました。このままログの確認・ダウンロードが可能です。")
+    # st.rerun()  # ← ここをコメントアウトして即時リセットを防ぐ
 
 
-if st.session_state.is_tracking:
+if st.session_state.is_tracking or st.session_state.get("room_id"):
     onlives_data = get_onlives_rooms()
     target_room_info = onlives_data.get(int(st.session_state.room_id)) if st.session_state.room_id.isdigit() else None
 
@@ -655,13 +654,13 @@ if st.session_state.is_tracking:
             free_gift_df.to_csv(buf, index=False, encoding="utf-8-sig")
             upload_csv_to_ftp(f"free_gift_log_{st.session_state.room_id}_{datetime.datetime.now(JST).strftime('%Y%m%d_%H%M%S')}.csv", buf)
 
-        # 状態変更とリロード
-        st.session_state.is_tracking = False
-        st.info("✅ 配信終了を検知し、すべてのログを保存しました。トラッキングを停止します。")
-        st.rerun()
+        # 配信が終了しても、表示用のフラグを「停止」にせず、警告を出すだけにする
+        # st.session_state.is_tracking = False  # 消去またはコメントアウト
+        st.warning("📡 配信が終了しました。ログを最終保存しました。このまま振り返りが可能です。")
+        # st.rerun()  # 消去またはコメントアウト
 
 
-    if target_room_info:
+    if target_room_info or st.session_state.get("room_id"):
         room_id = st.session_state.room_id
 
         # ルーム名取得
@@ -676,9 +675,15 @@ if st.session_state.is_tracking:
         link_html = f'<a href="{room_url}" target="_blank" style="font-weight:bold; text-decoration:underline; color:inherit;">{room_name}</a>'
         st.markdown(f'<div class="tracking-success">{link_html} の配信をトラッキング中です！</div>', unsafe_allow_html=True)
 
-        st_autorefresh(interval=10000, limit=None, key="dashboard_refresh")
-        st.session_state.comment_log = get_and_update_log("comment", st.session_state.room_id)
-        st.session_state.gift_log = get_and_update_log("gift", st.session_state.room_id)
+        # 配信中の時だけ自動更新し、新しいログを取得しにいく
+        if is_live_now:
+            st_autorefresh(interval=10000, limit=None, key="dashboard_refresh")
+            st.session_state.comment_log = get_and_update_log("comment", st.session_state.room_id)
+            st.session_state.gift_log = get_and_update_log("gift", st.session_state.room_id)
+        else:
+            # 配信終了後は更新を止め、最終保存されたログを表示し続けるだけにする
+            st.info("配信が終了したため、自動更新を停止しました。現在のログを保持しています。")
+
         import math
 
         # コメントログ自動保存
@@ -1031,7 +1036,8 @@ if st.session_state.is_tracking:
         st.session_state.is_tracking = False
 
 
-if st.session_state.is_tracking and st.session_state.room_id:
+# if st.session_state.is_tracking and st.session_state.room_id:
+if st.session_state.get("room_id"):
 
     st.markdown("---")
     st.markdown("<h2 style='font-size:2em;'>📝 ログ詳細</h2>", unsafe_allow_html=True)
