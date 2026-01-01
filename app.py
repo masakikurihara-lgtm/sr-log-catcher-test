@@ -555,6 +555,7 @@ if st.button("トラッキング開始", key="start_button"):
                 st.session_state.total_fan_count = 0
                 st.session_state.free_gift_log = []
                 st.session_state.raw_free_gift_queue = []
+                st.session_state.system_msg_log = []
                 
                 # 1. 無償ギフトマスターの取得
                 update_free_gift_master(input_room_id)
@@ -751,21 +752,27 @@ if st.session_state.is_tracking:
         st.session_state.fan_list = fan_list
         st.session_state.total_fan_count = total_fan_count
 
-        # --- 無償ギフト：キューからデータを取り出してログに変換 ---
-        import time
+        # --- 無償ギフト・システムMSG：キューからデータを取り出してログに変換 ---
         while not gift_queue.empty():
             try:
                 raw_data = gift_queue.get_nowait()
+                msg_type = raw_data.get("t")
+
+                # ✅ システムメッセージ (t: 18) の処理
+                if msg_type == 18:
+                    new_sys_entry = {
+                        "created_at": raw_data.get("created_at", int(time.time())),
+                        "message": raw_data.get("m", ""),
+                        "user_id": raw_data.get("u")
+                    }
+                    st.session_state.system_msg_log.insert(0, new_sys_entry)
+                    continue # 次のデータへ
+
+                # 🎁 ギフト (t: 2) の処理（既存）
                 gift_id = raw_data.get("g")
-                
-                # 💡 ここが重要：マスター（1ptのギフトだけが入っている辞書）に
-                # 存在しないギフトID（20ptなど）は、このループでは処理せず無視（continue）する
-                # これにより、20ptは「スペシャルギフト」側にのみ表示されるようになります
-                master = st.session_state.get("free_gift_master", {}).get(gift_id)
+                master = st.session_state.get("free_gift_master", {}).get(str(gift_id))
                 if not master:
                     continue
-                
-                master = st.session_state.free_gift_master[gift_id]
                 
                 new_entry = {
                     "created_at": raw_data.get("created_at", int(time.time())),
@@ -778,14 +785,7 @@ if st.session_state.is_tracking:
                     "num": raw_data.get("n", 1),
                     "image": master.get("image", "")
                 }
-                
-                # ログの先頭に追加（新しい順）
                 st.session_state.free_gift_log.insert(0, new_entry)
-                
-                # ログが溜まりすぎないよう制限（直近100件までなど）
-                # if len(st.session_state.free_gift_log) > 100:
-                #     st.session_state.free_gift_log = st.session_state.free_gift_log[:100]
-                    
             except Exception as e:
                 break
             
@@ -958,27 +958,24 @@ if st.session_state.is_tracking:
                     st.info("無償ギフトはまだありません。")
 
         with col_fan:
-            st.markdown("###### 🏆 ファンリスト")
+            st.markdown("###### 🧡 システムMSG") # タイトル変更
             with st.container(border=True, height=500):
-                if st.session_state.fan_list:
-                    display_fans = st.session_state.fan_list
-                    for fan in display_fans:
-                        # 他のカラム（comment-item等）と全く同じクラス構成に変更
+                # ✅ システムメッセージの表示
+                if st.session_state.get("system_msg_log"):
+                    for log in st.session_state.system_msg_log:
+                        created_at = datetime.datetime.fromtimestamp(log.get('created_at', 0), JST).strftime("%H:%M:%S")
+                        msg_text = log.get('message', '')
+                        
                         html = f"""
-                        <div class="fan-item">
-                            <div class="fan-info-row">
-                                <img src="https://static.showroom-live.com/image/avatar/{fan.get('avatar_id', 0)}.png?v=108" class="fan-avatar" />
-                                <div class="fan-content">
-                                    <div class="fan-level">Lv. {fan.get('level', 0)}</div>
-                                    <div class="fan-user">{fan.get('user_name', '不明なユーザー')}</div>
-                                </div>
-                            </div>
+                        <div style="padding: 8px; font-size: 0.85em; line-height: 1.4;">
+                            <span style="color: #888; font-size: 0.8em;">[{created_at}]</span><br>
+                            <span style="color: #FF6C1A; font-weight: bold;">{msg_text}</span>
                         </div>
-                        <hr style="border: none; border-top: 1px solid #eee; margin: 8px 0;">
+                        <hr style="border: none; border-top: 1px solid #eee; margin: 4px 0;">
                         """
                         st.markdown(html, unsafe_allow_html=True)
                 else:
-                    st.info("ファンデータがありません。")
+                    st.info("システムメッセージはありません。")
     else:
         st.warning("指定されたルームIDが見つからないか、認証されていないルームIDか、現在配信中ではありません。")
         st.session_state.is_tracking = False
@@ -1056,8 +1053,8 @@ if st.session_state.is_tracking and st.session_state.room_id:
                 s_sum = s_raw.groupby(['user_id', 'name_g', 'point'], as_index=False).agg({'num': 'sum', 'created_at': 'max', 'name_u': 'last'})
                 s_sum['合計Pt（※単純合計値）'] = (s_sum['num'] * pd.to_numeric(s_sum['point'])).astype(int)
                 s_sum['最新ギフト時間'] = pd.to_datetime(s_sum['created_at'], unit='s').dt.tz_localize('UTC').dt.tz_convert(JST).dt.strftime("%Y-%m-%d %H:%M:%S")
-                s_sum = s_sum.rename(columns={'name_u': 'ユーザー名', 'name_g': 'ギフト名', 'num': '個数', 'point': 'ポイント', 'user_id': 'ユーザーID'}).sort_values('最新ギフト時間', ascending=False)
-                st.dataframe(s_sum[['最新ギフト時間', 'ユーザー名', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']], use_container_width=True, hide_index=True)
+                s_sum = s_sum.rename(columns={'name_u': 'ユーザー名', 'name_g': 'ギフト名', 'num': '合計個数', 'point': 'ポイント', 'user_id': 'ユーザーID'}).sort_values('最新ギフト時間', ascending=False)
+                st.dataframe(s_sum[['最新ギフト時間', 'ユーザー名', 'ギフト名', '合計個数', 'ポイント', '合計Pt（※単純合計値）']], use_container_width=True, hide_index=True)
 
             # 3. ユーザー単位集計 (貢献順)
             with st.expander("👤 ユーザー単位で集計 (総貢献Pt順)", expanded=False):
@@ -1073,7 +1070,7 @@ if st.session_state.is_tracking and st.session_state.room_id:
                 for _, r in u_merged.iterrows():
                     u_rows.append({
                         'ユーザー名': latest_names[r['user_id']] if r['user_id'] != prev_id else '',
-                        'ギフト名': r['name_g'], '個数': r['num'], 'ポイント': r['point'],
+                        'ギフト名': r['name_g'], '合計個数': r['num'], 'ポイント': r['point'],
                         'ギフト単位Pt': int(r['line_pt']), '総貢献Pt（※単純合計値）': int(r['総Pt']) if r['user_id'] != prev_id else ''
                     })
                     prev_id = r['user_id']
@@ -1103,8 +1100,8 @@ if st.session_state.is_tracking and st.session_state.room_id:
                 f_sum = f_raw.groupby(['user_id', 'gift_name', 'point'], as_index=False).agg({'num': 'sum', 'created_at': 'max', 'name': 'last'})
                 f_sum['合計Pt（※単純合計値）'] = (f_sum['num'] * pd.to_numeric(f_sum['point'])).astype(int)
                 f_sum['最新ギフト時間'] = pd.to_datetime(f_sum['created_at'], unit='s').dt.tz_localize('UTC').dt.tz_convert(JST).dt.strftime("%Y-%m-%d %H:%M:%S")
-                f_sum = f_sum.rename(columns={'name': 'ユーザー名', 'gift_name': 'ギフト名', 'num': '個数', 'point': 'ポイント'}).sort_values('最新ギフト時間', ascending=False)
-                st.dataframe(f_sum[['最新ギフト時間', 'ユーザー名', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']], use_container_width=True, hide_index=True)
+                f_sum = f_sum.rename(columns={'name': 'ユーザー名', 'gift_name': 'ギフト名', 'num': '合計個数', 'point': 'ポイント'}).sort_values('最新ギフト時間', ascending=False)
+                st.dataframe(f_sum[['最新ギフト時間', 'ユーザー名', 'ギフト名', '合計個数', 'ポイント', '合計Pt（※単純合計値）']], use_container_width=True, hide_index=True)
 
             with st.expander("👤 ユーザー単位で集計 (総貢献Pt順)", expanded=False):
                 f_u_df = f_raw.copy()
@@ -1119,7 +1116,7 @@ if st.session_state.is_tracking and st.session_state.room_id:
                 for _, r in f_u_merged.iterrows():
                     f_u_rows.append({
                         'ユーザー名': latest_f_names[r['user_id']] if r['user_id'] != prev_f_id else '',
-                        'ギフト名': r['gift_name'], '個数': r['num'], 'ポイント': r['point'],
+                        'ギフト名': r['gift_name'], '合計個数': r['num'], 'ポイント': r['point'],
                         'ギフト単位Pt': int(r['line_pt']), '総貢献Pt（※単純合計値）': int(r['総Pt']) if r['user_id'] != prev_f_id else ''
                     })
                     prev_f_id = r['user_id']
@@ -1165,8 +1162,8 @@ if st.session_state.is_tracking and st.session_state.room_id:
                 all_sum = all_df.groupby(['user_id', 'gift_name', 'point'], as_index=False).agg({'num': 'sum', 'created_at_dt': 'max', 'name': 'last'})
                 all_sum['合計Pt（※単純合計値）'] = (all_sum['num'] * pd.to_numeric(all_sum['point'])).astype(int)
                 all_sum['最新ギフト時間'] = all_sum['created_at_dt'].dt.tz_localize('UTC').dt.tz_convert(JST).dt.strftime("%Y-%m-%d %H:%M:%S")
-                all_sum = all_sum.rename(columns={'name': 'ユーザー名', 'gift_name': 'ギフト名', 'num': '個数', 'point': 'ポイント'}).sort_values('最新ギフト時間', ascending=False)
-                st.dataframe(all_sum[['最新ギフト時間', 'ユーザー名', 'ギフト名', '個数', 'ポイント', '合計Pt（※単純合計値）']], use_container_width=True, hide_index=True)
+                all_sum = all_sum.rename(columns={'name': 'ユーザー名', 'gift_name': 'ギフト名', 'num': '合計個数', 'point': 'ポイント'}).sort_values('最新ギフト時間', ascending=False)
+                st.dataframe(all_sum[['最新ギフト時間', 'ユーザー名', 'ギフト名', '合計個数', 'ポイント', '合計Pt（※単純合計値）']], use_container_width=True, hide_index=True)
 
             with st.expander("👤 ユーザー単位で集計 (総貢献Pt順)", expanded=False):
                 all_u = all_df.copy()
@@ -1181,7 +1178,7 @@ if st.session_state.is_tracking and st.session_state.room_id:
                 for _, r in all_u_merged.iterrows():
                     all_u_rows.append({
                         'ユーザー名': latest_all_names[r['user_id']] if r['user_id'] != prev_all_id else '',
-                        'ギフト名': r['gift_name'], '個数': r['num'], 'ポイント': r['point'],
+                        'ギフト名': r['gift_name'], '合計個数': r['num'], 'ポイント': r['point'],
                         'ギフト単位Pt': int(r['line_pt']), '総貢献Pt（※単純合計値）': int(r['総Pt']) if r['user_id'] != prev_all_id else ''
                     })
                     prev_all_id = r['user_id']
