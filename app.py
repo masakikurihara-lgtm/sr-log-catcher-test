@@ -758,12 +758,12 @@ if st.session_state.is_tracking:
             try:
                 raw_data = gift_queue.get_nowait()
                 
-                # t の判定（文字列に変換して確実に比較）
+                # t の判定（文字列に変換して比較するのが最も安全です）
                 m_type = str(raw_data.get("t", ""))
 
-                # --- ✅ A. システムメッセージ (t: 18) ---
+                # --- ✅ A. システムメッセージ (t: 18) の処理 ---
                 if m_type == "18":
-                    # created_at がなければ現在の時間を入れる（time.time()の代わりに既存のint(datetime.datetime.now().timestamp())を使用）
+                    # time.time() は使わず、datetime で安全にタイムスタンプを取得
                     ts = raw_data.get("created_at") or int(datetime.datetime.now().timestamp())
                     new_sys_entry = {
                         "created_at": ts,
@@ -773,18 +773,19 @@ if st.session_state.is_tracking:
                     st.session_state.system_msg_log.insert(0, new_sys_entry)
                     st.session_state.system_msg_log = st.session_state.system_msg_log[:200]
 
-                # --- 🎁 B. 無償ギフト (t: 2) ---
+                # --- 🎁 B. 無償ギフト (t: 2) の処理 ---
                 elif m_type == "2":
                     g_id = raw_data.get("g")
                     if g_id is None:
                         continue
                     
-                    # マスター辞書からギフト情報を探す（型に依存しないよう文字列キーで統一）
+                    # ギフトマスターとの照合
                     master = st.session_state.get("free_gift_master", {})
-                    gift_info = master.get(str(g_id))
+                    # IDが数値でも文字列でも見つけられるように検索
+                    gift_info = master.get(str(g_id)) or master.get(g_id)
                     
                     if not gift_info:
-                        # 1pt以外のギフト（有償など）はここでスキップされるのが正常です
+                        # マスターにない（有償ギフトなど）場合はスキップ
                         continue
                     
                     ts = raw_data.get("created_at") or int(datetime.datetime.now().timestamp())
@@ -803,8 +804,8 @@ if st.session_state.is_tracking:
                     st.session_state.free_gift_log = st.session_state.free_gift_log[:200]
 
             except Exception as e:
-                # 万が一エラーが起きてもサイドバーを汚さず、コンソールにのみ出す
-                print(f"DEBUG: Queue Process Error: {e}")
+                # ここで print しておけば、アプリを止めずにコンソールで原因を確認できます
+                print(f"Loop Error: {e}")
                 continue
 
         # 最後に時間順にソート（念のため）

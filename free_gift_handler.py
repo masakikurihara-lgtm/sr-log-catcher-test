@@ -22,26 +22,32 @@ class FreeGiftReceiver:
         # ★重要：このタブ専用のキューを作成
         self.my_queue = queue.Queue()
 
-    def on_message(self, ws, message):
+def on_message(self, ws, message):
         if message.startswith("MSG"):
             try:
                 parts = message.split("\t")
                 if len(parts) < 3: return
                 data = json.loads(parts[2])
 
-                # 判定を本体側に任せるため、tが含まれていれば全てキューへ
-                if "t" in data:
-                    # システムメッセージの文字化け修復だけここで試みる
-                    if str(data.get("t")) == "18":
+                # tの値を取得（念のため文字列として比較）
+                msg_type = str(data.get("t"))
+
+                # 🎁 ギフト (2) または ✅ システムメッセージ (18) の場合にキューへ入れる
+                if msg_type == "2" or msg_type == "18":
+                    
+                    # システムメッセージの場合は文字化け修復を試みる
+                    if msg_type == "18":
                         try:
                             raw_m = data.get("m", "")
-                            # latin-1経由のデコードを試行
                             data["m"] = raw_m.encode('latin-1').decode('utf-8')
                         except:
                             pass
+                    
+                    # 以前のコードと同じく、データを専用の箱に入れる
                     self.my_queue.put(data)
+
             except Exception as e:
-                print(f"WS Raw Message Error: {e}")
+                print(f"WebSocket Message Error: {e}")
 
     def on_error(self, ws, error):
         print(f"WebSocket Error: {error}")
