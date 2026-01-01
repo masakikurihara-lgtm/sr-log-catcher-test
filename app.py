@@ -1056,9 +1056,9 @@ if st.session_state.get("room_id"):
     st.markdown(
         f"<p style='font-size:12px; color:#a1a1a1;'>"
         f"※データは現在 {len(st.session_state.comment_log)} 件のコメント、"
-        f"{sys_msg_count} 件のシステムMSG、" # 追加
         f"{len(st.session_state.gift_log)} 件のスペシャルギフト、"
         f"{len(st.session_state.free_gift_log)} 件の無償ギフト、"
+        f"{sys_msg_count} 件のシステムMSG、" # 追加
         f"および {st.session_state.total_fan_count} 名のファンのデータが蓄積されています。<br />"
         f"※誤ってリロード（再読み込み）してしまった、閉じてしまった等でダウンロードせずに消失してしまった場合、"
         f"運営にご相談いただければ、コメント、スペシャルギフトに関しては、ログ取得できる可能性があります。<br />"
