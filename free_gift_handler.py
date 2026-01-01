@@ -22,7 +22,7 @@ class FreeGiftReceiver:
         # ★重要：このタブ専用のキューを作成
         self.my_queue = queue.Queue()
 
-def on_message(self, ws, message):
+    def on_message(self, ws, message):
         if message.startswith("MSG"):
             try:
                 parts = message.split("\t")
