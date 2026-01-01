@@ -7,6 +7,7 @@ import io
 from streamlit_autorefresh import st_autorefresh
 import ftplib
 import io
+import time
 import datetime
 import os
 from free_gift_handler import FreeGiftReceiver, get_streaming_server_info, update_free_gift_master, gift_queue
@@ -756,35 +757,39 @@ if st.session_state.is_tracking:
         while not gift_queue.empty():
             try:
                 raw_data = gift_queue.get_nowait()
-                # tを文字列として取得して比較（型エラー回避）
+                
+                # t の判定（文字列に変換して確実に比較）
                 m_type = str(raw_data.get("t", ""))
 
-                # ✅ システムメッセージ (t: 18)
+                # --- ✅ A. システムメッセージ (t: 18) ---
                 if m_type == "18":
+                    # created_at がなければ現在の時間を入れる（time.time()の代わりに既存のint(datetime.datetime.now().timestamp())を使用）
+                    ts = raw_data.get("created_at") or int(datetime.datetime.now().timestamp())
                     new_sys_entry = {
-                        "created_at": raw_data.get("created_at", int(time.time())),
+                        "created_at": ts,
                         "message": raw_data.get("m", ""),
                         "user_id": raw_data.get("u")
                     }
                     st.session_state.system_msg_log.insert(0, new_sys_entry)
                     st.session_state.system_msg_log = st.session_state.system_msg_log[:200]
 
-                # 🎁 ギフト (t: 2)
+                # --- 🎁 B. 無償ギフト (t: 2) ---
                 elif m_type == "2":
                     g_id = raw_data.get("g")
-                    if g_id is None: continue
-                    
-                    # マスターのキーが数値でも文字列でも照合できるようにする
-                    master = st.session_state.get("free_gift_master", {})
-                    gift_info = master.get(g_id) or master.get(str(g_id)) or master.get(int(g_id) if str(g_id).isdigit() else None)
-                    
-                    if not gift_info:
-                        # ここでスキップされている可能性があるため、
-                        # 有償ギフト（1pt以外）などの場合は正常な挙動です
+                    if g_id is None:
                         continue
                     
+                    # マスター辞書からギフト情報を探す（型に依存しないよう文字列キーで統一）
+                    master = st.session_state.get("free_gift_master", {})
+                    gift_info = master.get(str(g_id))
+                    
+                    if not gift_info:
+                        # 1pt以外のギフト（有償など）はここでスキップされるのが正常です
+                        continue
+                    
+                    ts = raw_data.get("created_at") or int(datetime.datetime.now().timestamp())
                     new_entry = {
-                        "created_at": raw_data.get("created_at", int(time.time())),
+                        "created_at": ts,
                         "user_id": raw_data.get("u"),
                         "name": raw_data.get("ac"),
                         "avatar_id": raw_data.get("av"),
@@ -798,8 +803,8 @@ if st.session_state.is_tracking:
                     st.session_state.free_gift_log = st.session_state.free_gift_log[:200]
 
             except Exception as e:
-                # ここでエラー内容を確認できるようにする
-                st.sidebar.error(f"Queue Error: {e}")
+                # 万が一エラーが起きてもサイドバーを汚さず、コンソールにのみ出す
+                print(f"DEBUG: Queue Process Error: {e}")
                 continue
 
         # 最後に時間順にソート（念のため）
