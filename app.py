@@ -1007,9 +1007,13 @@ if st.session_state.is_tracking and st.session_state.room_id:
 
     st.markdown("---")
     st.markdown("<h2 style='font-size:2em;'>📝 ログ詳細</h2>", unsafe_allow_html=True)
+    
+    # 統計情報の表示にシステムMSG件数を追加
+    sys_msg_count = len(st.session_state.get("system_msg_log", []))
     st.markdown(
         f"<p style='font-size:12px; color:#a1a1a1;'>"
         f"※データは現在 {len(st.session_state.comment_log)} 件のコメント、"
+        f"{sys_msg_count} 件のシステムMSG、" # 追加
         f"{len(st.session_state.gift_log)} 件のスペシャルギフト、"
         f"{len(st.session_state.free_gift_log)} 件の無償ギフト、"
         f"および {st.session_state.total_fan_count} 名のファンのデータが蓄積されています。<br />"
@@ -1019,32 +1023,48 @@ if st.session_state.is_tracking and st.session_state.room_id:
         unsafe_allow_html=True
     )
 
-    # --- タブの作成 ---
+    # --- タブの作成 (タブ名を変更) ---
     tab_com, tab_sp, tab_free, tab_all, tab_fan = st.tabs([
-        "💬 コメント", "🎁 スペシャルギフト", "🎈 無償ギフト", "🎁🎈 ギフト統合 (SP&無償)", "🏆 ファンリスト"
+        "💬🧡 コメント&MSG", "🎁 スペシャルギフト", "🎈 無償ギフト", "🎁🎈 ギフト統合 (SP&無償)", "🏆 ファンリスト"
     ])
 
     # ==========================================
-    # タブ1: コメントログ
+    # タブ1: コメント & システムメッセージログ
     # ==========================================
     with tab_com:
-        filtered_comments = [
-            log for log in st.session_state.comment_log 
-            if not any(keyword in log.get('name', '') or keyword in log.get('comment', '') for keyword in SYSTEM_COMMENT_KEYWORDS)
-        ]
-        if filtered_comments:
-            c_df = pd.DataFrame(filtered_comments)
-            c_df['コメント時間'] = pd.to_datetime(c_df['created_at'], unit='s').dt.tz_localize('UTC').dt.tz_convert(JST).dt.strftime("%Y-%m-%d %H:%M:%S")
-            c_df = c_df.rename(columns={'name': 'ユーザー名', 'comment': 'コメント内容', 'user_id': 'ユーザーID'})
-            
-            st.markdown("### 📝 コメントログ一覧")
-            st.dataframe(c_df[['コメント時間', 'ユーザー名', 'コメント内容']], use_container_width=True, hide_index=True)
-            
-            buf_com = io.BytesIO()
-            c_df[['コメント時間', 'ユーザー名', 'ユーザーID', 'コメント内容']].to_csv(buf_com, index=False, encoding='utf-8-sig')
-            st.download_button("コメントログをダウンロード", buf_com.getvalue(), f"comment_log_{st.session_state.room_id}.csv", "text/csv", key="dl_c")
-        else:
-            st.info("コメントデータがありません。")
+        # --- 1. コメントログ部分 ---
+        with st.expander("📝 コメントログ一覧", expanded=True):
+            filtered_comments = [
+                log for log in st.session_state.comment_log 
+                if not any(keyword in log.get('name', '') or keyword in log.get('comment', '') for keyword in SYSTEM_COMMENT_KEYWORDS)
+            ]
+            if filtered_comments:
+                c_df = pd.DataFrame(filtered_comments)
+                c_df['コメント時間'] = pd.to_datetime(c_df['created_at'], unit='s').dt.tz_localize('UTC').dt.tz_convert(JST).dt.strftime("%Y-%m-%d %H:%M:%S")
+                c_df = c_df.rename(columns={'name': 'ユーザー名', 'comment': 'コメント内容', 'user_id': 'ユーザーID'})
+                
+                st.dataframe(c_df[['コメント時間', 'ユーザー名', 'コメント内容']], use_container_width=True, hide_index=True)
+                
+                buf_com = io.BytesIO()
+                c_df[['コメント時間', 'ユーザー名', 'ユーザーID', 'コメント内容']].to_csv(buf_com, index=False, encoding='utf-8-sig')
+                st.download_button("コメントログをダウンロード", buf_com.getvalue(), f"comment_log_{st.session_state.room_id}.csv", "text/csv", key="dl_c")
+            else:
+                st.info("コメントデータがありません。")
+
+        # --- 2. システムMSGログ部分 (追加) ---
+        with st.expander("🧡 システムMSGログ一覧", expanded=True):
+            system_msgs = st.session_state.get("system_msg_log", [])
+            if system_msgs:
+                s_msg_df = pd.DataFrame(system_msgs)
+                # 表示時間の変換
+                s_msg_df['表示時間'] = pd.to_datetime(s_msg_df['created_at'], unit='s').dt.tz_localize('UTC').dt.tz_convert(JST).dt.strftime("%Y-%m-%d %H:%M:%S")
+                # カラム名の整理
+                s_msg_df = s_msg_df.rename(columns={'message': '表示内容'})
+                
+                # 表示用データフレーム（CSVダウンロード不要とのことなので表示のみ）
+                st.dataframe(s_msg_df[['表示時間', '表示内容']], use_container_width=True, hide_index=True)
+            else:
+                st.info("システムメッセージデータがありません。")
 
     # ==========================================
     # タブ2: スペシャルギフトログ
