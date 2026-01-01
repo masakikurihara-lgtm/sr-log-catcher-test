@@ -29,22 +29,19 @@ class FreeGiftReceiver:
                 if len(parts) < 3: return
                 data = json.loads(parts[2])
 
-                m_type = int(data.get("t", 0))
-
-                if m_type == 2:
+                # 判定を本体側に任せるため、tが含まれていれば全てキューへ
+                if "t" in data:
+                    # システムメッセージの文字化け修復だけここで試みる
+                    if str(data.get("t")) == "18":
+                        try:
+                            raw_m = data.get("m", "")
+                            # latin-1経由のデコードを試行
+                            data["m"] = raw_m.encode('latin-1').decode('utf-8')
+                        except:
+                            pass
                     self.my_queue.put(data)
-                elif m_type == 18:
-                    # 文字化け復元を試みるが、失敗してもデータ自体はキューに入れる
-                    try:
-                        raw_m = data.get("m", "")
-                        fixed_m = raw_m.encode('latin-1').decode('utf-8')
-                        data["m"] = fixed_m
-                    except:
-                        pass 
-                    self.my_queue.put(data)
-
             except Exception as e:
-                print(f"WebSocket Message Error: {e}")
+                print(f"WS Raw Message Error: {e}")
 
     def on_error(self, ws, error):
         print(f"WebSocket Error: {error}")

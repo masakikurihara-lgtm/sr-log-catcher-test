@@ -756,28 +756,31 @@ if st.session_state.is_tracking:
         while not gift_queue.empty():
             try:
                 raw_data = gift_queue.get_nowait()
-                # 型の安全性を確保（数値か文字列かに関わらず判定できるようにする）
-                msg_type = int(raw_data.get("t", 0))
+                # tを文字列として取得して比較（型エラー回避）
+                m_type = str(raw_data.get("t", ""))
 
-                # ✅ システムメッセージ (t: 18) の処理
-                if msg_type == 18:
+                # ✅ システムメッセージ (t: 18)
+                if m_type == "18":
                     new_sys_entry = {
                         "created_at": raw_data.get("created_at", int(time.time())),
                         "message": raw_data.get("m", ""),
                         "user_id": raw_data.get("u")
                     }
                     st.session_state.system_msg_log.insert(0, new_sys_entry)
-                    # ログの肥大化防止（直近200件）
                     st.session_state.system_msg_log = st.session_state.system_msg_log[:200]
-                    continue 
 
-                # 🎁 ギフト (t: 2) の処理
-                if msg_type == 2:
-                    gift_id = str(raw_data.get("g")) # API側（マスター）が文字列キーのためstrに統一
+                # 🎁 ギフト (t: 2)
+                elif m_type == "2":
+                    g_id = raw_data.get("g")
+                    if g_id is None: continue
                     
-                    master = st.session_state.get("free_gift_master", {}).get(gift_id)
-                    if not master:
-                        # マスターにないギフト（有償など）は無視して次へ
+                    # マスターのキーが数値でも文字列でも照合できるようにする
+                    master = st.session_state.get("free_gift_master", {})
+                    gift_info = master.get(g_id) or master.get(str(g_id)) or master.get(int(g_id) if str(g_id).isdigit() else None)
+                    
+                    if not gift_info:
+                        # ここでスキップされている可能性があるため、
+                        # 有償ギフト（1pt以外）などの場合は正常な挙動です
                         continue
                     
                     new_entry = {
@@ -785,22 +788,22 @@ if st.session_state.is_tracking:
                         "user_id": raw_data.get("u"),
                         "name": raw_data.get("ac"),
                         "avatar_id": raw_data.get("av"),
-                        "gift_id": gift_id,
-                        "gift_name": master.get("name"),
-                        "point": master.get("point", 1),
+                        "gift_id": str(g_id),
+                        "gift_name": gift_info.get("name"),
+                        "point": gift_info.get("point", 1),
                         "num": raw_data.get("n", 1),
-                        "image": master.get("image", "")
+                        "image": gift_info.get("image", "")
                     }
                     st.session_state.free_gift_log.insert(0, new_entry)
                     st.session_state.free_gift_log = st.session_state.free_gift_log[:200]
 
             except Exception as e:
-                # エラーが出てもループを止めないようにしつつログを出す
-                print(f"Queue Processing Error: {e}")
+                # ここでエラー内容を確認できるようにする
+                st.sidebar.error(f"Queue Error: {e}")
                 continue
-            
-            # 新しい順にソート
-            st.session_state.free_gift_log.sort(key=lambda x: x["created_at"], reverse=True)
+
+        # 最後に時間順にソート（念のため）
+        st.session_state.free_gift_log.sort(key=lambda x: x["created_at"], reverse=True)
 
         # --- 無償ギフトログ自動保存 (100件ごと) ---
         prev_free_gift_count = st.session_state.get("prev_free_gift_count", 0)
