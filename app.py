@@ -977,23 +977,51 @@ if st.session_state.is_tracking:
                     st.info("無償ギフトはまだありません。")
 
         with col_fan:
-            st.markdown("###### 🧡 システムMSG") # タイトル変更
+            st.markdown("###### 🧡 システムMSG") 
             with st.container(border=True, height=500):
-                # ✅ システムメッセージの表示
                 if st.session_state.get("system_msg_log"):
                     for log in st.session_state.system_msg_log:
                         created_at = datetime.datetime.fromtimestamp(log.get('created_at', 0), JST).strftime("%H:%M:%S")
                         msg_text = log.get('message', '')
                         
-                        # paddingを削除し、class="comment-item"を付与して高さを統一
+                        # --- 💡 ハイライト判定ロジック（優先順位順） ---
+                        bg_color = "transparent"
+                        border_color = "transparent"
+
+                        # 1. 〇〇回目の訪問 (最優先・最も目立つ)
+                        if "回目の訪問" in msg_text:
+                            bg_color = "#ffebee"  # 薄い赤（お祝い感）
+                            border_color = "#ffcdd2"
+                        
+                        # 2. 初訪問 (次に目立つ)
+                        elif "初訪問" in msg_text:
+                            bg_color = "#e3f2fd"  # 薄い青（フレッシュな印象）
+                            border_color = "#bbdefb"
+
+                        # 3. 2度目の訪問
+                        elif "2度目の訪問" in msg_text:
+                            bg_color = "#f5f5f5"  # ごく薄いグレー
+                            border_color = "#eeeeee"
+
+                        # 4. ファンレベル上昇 (Lv10: 暖色 / Lv9: 同系統の薄い色)
+                        elif "ファンレベルが10に" in msg_text:
+                            bg_color = "#fff3cd"  # ゴールド（ファン化）
+                            border_color = "#ffeeba"
+                        elif "ファンレベルが9に" in msg_text:
+                            bg_color = "#fff9e6"  # さらに薄いイエロー（リーチ）
+                            border_color = "#fff3cd"
+                        
+                        # スタイルの組み立て
+                        style = f"background-color: {bg_color}; border: 1px solid {border_color}; padding: 4px 8px; border-radius: 4px; margin-bottom: 2px;"
+                        
                         html = f"""
-                        <div class="comment-item">
+                        <div class="comment-item" style="{style}">
                             <div class="comment-time">{created_at}</div>
                             <div style="color: #FF6C1A; font-weight: bold; font-size: 0.85em; line-height: 1.4; margin-top: 2px;">
                                 {msg_text}
                             </div>
                         </div>
-                        <hr style="border: none; border-top: 1px solid #eee; margin: 8px 0;">
+                        <hr style="border: none; border-top: 1px solid #eee; margin: 4px 0;">
                         """
                         st.markdown(html, unsafe_allow_html=True)
                 else:
