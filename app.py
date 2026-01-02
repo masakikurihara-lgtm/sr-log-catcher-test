@@ -1033,7 +1033,7 @@ if st.session_state.is_tracking or st.session_state.get("room_id"):
                         if "回目の訪問" in msg_text:
                             bg_color = "#ffebee"  # 薄い赤（お祝い感）
                             # border_color = "#ffcdd2"
-                            st.balloons()
+                            # st.balloons()
                         
                         # 2. 初訪問 (次に目立つ)
                         elif "初訪問" in msg_text:
@@ -1055,7 +1055,7 @@ if st.session_state.is_tracking or st.session_state.get("room_id"):
                         elif "ファンレベルが10に" in msg_text or "人になりました" in msg_text:
                             bg_color = "#fff3cd"  # ゴールド（ファン化）
                             # border_color = "#ffeeba"
-                            st.snow()
+                            # st.snow()
                         elif "ファンレベルが9に" in msg_text:
                             bg_color = "#fff9e6"  # さらに薄いイエロー（リーチ）
                             # border_color = "#fff3cd"
